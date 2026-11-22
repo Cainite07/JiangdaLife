@@ -33,8 +33,9 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import cn.mudlife.app.timetable.TimetableActivity.Companion.EXTRA_TERM
 import cn.mudlife.app.timetable.TimetableActivity.Companion.EXTRA_ACCOUNT
-import cn.mudlife.app.ui.theme.AppColors
-import cn.mudlife.app.ui.theme.ThemeMode
+import cn.mudlife.app.ui.theme.AppColorSet
+import cn.mudlife.app.ui.theme.LocalAppColors
+import cn.mudlife.app.utils.PrefsHelper
 import cn.mudlife.app.ui.TimetableTabPage
 import cn.mudlife.campuscard.SessionStore
 import java.time.LocalDate
@@ -47,8 +48,8 @@ private var standaloneRevision = 0L
 @Composable
 internal fun rememberTimetableTab(activity: ComponentActivity, owner: String?): TimetableTabPage? {
     if (owner.isNullOrEmpty()) return null
-    val dark = AppColors.isDark
-    val tab = remember(activity, owner, dark) { RetainedTimetableTab(activity, owner, dark) }
+    val colors = LocalAppColors.current
+    val tab = remember(activity, owner, colors) { RetainedTimetableTab(activity, owner) }
     DisposableEffect(tab) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_PAUSE) tab.onPause()
@@ -62,7 +63,7 @@ internal fun rememberTimetableTab(activity: ComponentActivity, owner: String?): 
     return tab
 }
 
-private class RetainedTimetableTab(val activity: ComponentActivity, val owner: String, val dark: Boolean) : TimetableTabPage {
+private class RetainedTimetableTab(val activity: ComponentActivity, val owner: String) : TimetableTabPage {
     val session by lazy(LazyThreadSafetyMode.NONE) { SessionStore(activity) }
     var controller: TimetableController? = null
     private var wasPaused = false
@@ -106,13 +107,14 @@ private fun TimetableContent(
     }
     val standalone = tab == null
     key(owner) {
-        TimetableTheme(if (tab == null) timetableThemeMode(activity) else if (tab.dark) ThemeMode.DARK else ThemeMode.LIGHT) {
-            val dark = AppColors.isDark
-            val paper = AppColors.Background
+        val appearance = if (standalone) remember(activity) { PrefsHelper.appearance(activity) } else null
+        TimetableTheme(appearance) {
+            val colors = LocalAppColors.current
+            val paper = colors.Background
             fun create(saved: Bundle?) = tab?.controller ?: TimetableController(
-                activity, session, owner, dark, paper.toArgb(), saved, standalone
+                activity, session, owner, colors, saved, standalone
             ) { exit() }.also { tab?.controller = it }
-            val controller = rememberSaveable(activity, owner, dark, saver = Saver(
+            val controller = rememberSaveable(activity, owner, colors, saver = Saver(
                 save = { it: TimetableController -> it.snapshot() },
                 restore = { saved -> create(saved) }
             )) { create(null) }
@@ -149,7 +151,7 @@ private fun TimetableContent(
                     if (standalone) controller.close()
                 }
             }
-            key(dark) {
+            key(colors) {
                 Box(Modifier.fillMaxSize().background(paper)) {
                     controller.Screen(standalone, contentPadding)
                 }
@@ -162,12 +164,13 @@ private class TimetableController(
     private val activity: ComponentActivity,
     private val session: SessionStore,
     private val owner: String,
-    private val dark: Boolean,
-    paper: Int,
+    colors: AppColorSet,
     saved: Bundle?,
     private val standalone: Boolean,
     var exit: () -> Unit
 ) {
+    private val dark = colors.isDark
+    private val paper = colors.Background.toArgb()
     var launchImport: (Intent) -> Unit = {}
     var launchPicker: () -> Unit = {}
     private val store = TimetableStore(activity, owner)
@@ -229,7 +232,7 @@ private class TimetableController(
         pager = TimetableWeekPager(activity, {
             WeeklyTimetableView(activity, ::details, ::addCourse,
                 { cluster -> openMenu(TimetablePanel.Overlaps(cluster)) }, dark,
-                onBell = { openMenu(TimetablePanel.BellDetail(it)) })
+                onBell = { openMenu(TimetablePanel.BellDetail(it)) }, theme = colors)
         }, ::bindWeek) { selected ->
             week = selected
             updateHeading()

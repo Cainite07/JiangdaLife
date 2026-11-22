@@ -20,6 +20,7 @@ import android.widget.TextView
 import androidx.compose.ui.graphics.toArgb
 import androidx.core.graphics.ColorUtils
 import androidx.core.view.doOnLayout
+import cn.mudlife.app.ui.theme.AppColorSet
 import cn.mudlife.app.ui.theme.DarkColors
 import cn.mudlife.app.ui.theme.LightColors
 import java.time.LocalDate
@@ -33,9 +34,9 @@ internal class WeeklyTimetableView(
     private val onEmpty: (weekday: Int, period: Int) -> Unit,
     private val onCluster: (List<SavedCourse>) -> Unit,
     private val dark: Boolean = timetableThemeIsDark(context),
-    private val onBell: ((Int) -> Unit)? = null
+    private val onBell: ((Int) -> Unit)? = null,
+    private val theme: AppColorSet = if (dark) DarkColors else LightColors
 ) : LinearLayout(context) {
-    private val theme = if (dark) DarkColors else LightColors
     private val courseTypeface = Typeface.create("sans-serif", Typeface.NORMAL)
     private val paper = theme.Background.toArgb()
     private val rail = theme.Card.toArgb()
@@ -447,7 +448,7 @@ internal class WeeklyTimetableView(
         val custom = selectedColors[course.name]?.let { ColorUtils.setAlphaComponent(it, 255) }
         val base = when {
             inactive -> theme.SurfaceVariant.toArgb()
-            dark -> darkCourseFill(custom ?: swatch)
+            dark -> darkCourseFill(custom ?: swatch, paper)
             custom != null -> custom
             else -> ColorUtils.blendARGB(paper, swatch, .30f)
         }

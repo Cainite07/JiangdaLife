@@ -1,5 +1,6 @@
 package cn.mudlife.campuscard
 
+import cn.mudlife.app.utils.PrefsHelper
 import cn.mudlife.app.utils.WebResourceCache
 import cn.mudlife.app.BuildConfig
 import cn.mudlife.app.ui.PageTitle
@@ -8,6 +9,7 @@ import android.annotation.SuppressLint
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.graphics.Bitmap
+import android.graphics.drawable.ColorDrawable
 import android.net.Uri
 import android.net.http.SslError
 import android.os.Bundle
@@ -24,6 +26,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -79,6 +82,12 @@ class SchoolActivity : ComponentActivity() {
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
         WindowCompat.setDecorFitsSystemWindows(window, false)
+        val palette = PrefsHelper.appearance(this).colors(this)
+        window.setBackgroundDrawable(ColorDrawable(palette.Background.toArgb()))
+        WindowCompat.getInsetsController(window, window.decorView).apply {
+            isAppearanceLightStatusBars = !palette.isDark
+            isAppearanceLightNavigationBars = !palette.isDark
+        }
         session = SessionStore(this)
         electric = intent.getStringExtra("mode") == "electric"
         payment = electric || intent.getStringExtra("mode") == "payment"

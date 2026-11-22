@@ -23,6 +23,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.heading
@@ -89,15 +90,22 @@ internal fun AccountGuide(
                     color = AppColors.TextPrimary, fontFamily = FontFamily.Serif,
                     fontSize = 30.sp, letterSpacing = 2.sp, fontWeight = FontWeight.Medium)
                 Spacer(Modifier.height(sectionGap))
-                Column(Modifier.fillMaxWidth().reveal(clock, .49f, .87f)) {
-                    AccountRow("学校账号", "课表 · 一卡通 · 电费", Icons.Outlined.School, school, schoolExpired,
-                        enabled = rowsReady && !leaving, showProgress = true) { onSelect("school") }
-                    GuideDivider()
-                    AccountRow("趣智校园", "饮水 · 吹风机", Icons.Outlined.WaterDrop, campus,
-                        enabled = rowsReady && !leaving, showProgress = true) { onSelect("life") }
-                    GuideDivider()
-                    AccountRow("趣智后勤热水", "洗澡码", Icons.Outlined.Shower, logistics, logisticsExpired,
-                        enabled = rowsReady && !leaving, showProgress = true) { onSelect("logistics") }
+                Surface(
+                    modifier = Modifier.fillMaxWidth().reveal(clock, .49f, .87f),
+                    shape = RoundedCornerShape(16.dp),
+                    color = lerp(AppColors.Background, ink, .10f),
+                    contentColor = AppColors.TextPrimary
+                ) {
+                    Column {
+                        AccountRow("学校账号", "课表 · 一卡通 · 电费", Icons.Outlined.School, school, schoolExpired,
+                            enabled = rowsReady && !leaving, showProgress = true) { onSelect("school") }
+                        GuideDivider()
+                        AccountRow("趣智校园", "饮水 · 吹风机", Icons.Outlined.WaterDrop, campus,
+                            enabled = rowsReady && !leaving, showProgress = true) { onSelect("life") }
+                        GuideDivider()
+                        AccountRow("趣智后勤热水", "洗澡码", Icons.Outlined.Shower, logistics, logisticsExpired,
+                            enabled = rowsReady && !leaving, showProgress = true) { onSelect("logistics") }
+                    }
                 }
             }
             Button(onClick = { onContinue(completed) }, enabled = finishReady && !leaving,
@@ -114,7 +122,7 @@ internal fun AccountGuide(
 
 @Composable
 private fun GuideDivider() {
-    HorizontalDivider(Modifier.padding(start = 36.dp), color = AppColors.Border.copy(alpha = .75f))
+    HorizontalDivider(Modifier.padding(start = 63.dp, end = 14.dp), color = AppColors.Accent.copy(alpha = .14f))
 }
 
 private fun Modifier.reveal(clock: Animatable<Float, *>, start: Float, end: Float) = graphicsLayer {

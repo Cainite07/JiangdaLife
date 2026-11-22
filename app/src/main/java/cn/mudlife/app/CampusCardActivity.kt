@@ -31,6 +31,8 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
+import androidx.compose.ui.graphics.toArgb
+import cn.mudlife.app.utils.PrefsHelper
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -47,6 +49,7 @@ class CampusCardActivity : ComponentActivity() {
     private lateinit var serviceLabel: TextView
     private var browser: WebView? = null
     private var foreground = false
+    private val palette by lazy { PrefsHelper.appearance(this).colors(this) }
     private var loading = true
     private var pageError: String? = null
     private val navigationGeneration = AtomicLong()
@@ -56,10 +59,10 @@ class CampusCardActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
-        window.setBackgroundDrawable(ColorDrawable(Color.WHITE))
+        window.setBackgroundDrawable(ColorDrawable(palette.Background.toArgb()))
         WindowCompat.getInsetsController(window, window.decorView).apply {
-            isAppearanceLightStatusBars = true
-            isAppearanceLightNavigationBars = true
+            isAppearanceLightStatusBars = !palette.isDark
+            isAppearanceLightNavigationBars = !palette.isDark
         }
         buildLayout()
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
@@ -72,7 +75,7 @@ class CampusCardActivity : ComponentActivity() {
     private fun buildLayout() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.rgb(244, 238, 221))
+            setBackgroundColor(palette.Background.toArgb())
         }
         ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
             val padding = insets.getInsets(
@@ -90,7 +93,7 @@ class CampusCardActivity : ComponentActivity() {
         toolbar.addView(TextView(this).apply {
             text = "江苏大学一卡通"
             textSize = 18f
-            setTextColor(Color.rgb(30, 41, 59))
+            setTextColor(palette.TextPrimary.toArgb())
             gravity = Gravity.CENTER
         }, LinearLayout.LayoutParams(0, dp(56), 1f))
         toolbar.addView(button("关闭") { finish() })
@@ -112,7 +115,7 @@ class CampusCardActivity : ComponentActivity() {
             text = "学校官方服务 · ykt.ujs.edu.cn"
             textSize = 12f
             gravity = Gravity.CENTER
-            setTextColor(Color.rgb(100, 116, 139))
+            setTextColor(palette.TextSecondary.toArgb())
             setPadding(0, dp(4), 0, dp(8))
         }
         root.addView(serviceLabel)
@@ -123,15 +126,17 @@ class CampusCardActivity : ComponentActivity() {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
             setPadding(dp(28), dp(24), dp(28), dp(24))
-            setBackgroundColor(Color.WHITE)
+            setBackgroundColor(palette.Card.toArgb())
             isClickable = true
         }
-        progress = ProgressBar(this)
+        progress = ProgressBar(this).apply {
+            indeterminateTintList = ColorStateList.valueOf(palette.Accent.toArgb())
+        }
         cover.addView(progress)
         coverMessage = TextView(this).apply {
             textSize = 16f
             gravity = Gravity.CENTER
-            setTextColor(Color.rgb(51, 65, 85))
+            setTextColor(palette.TextPrimary.toArgb())
             setPadding(0, dp(18), 0, dp(18))
         }
         cover.addView(coverMessage)
@@ -401,8 +406,8 @@ class CampusCardActivity : ComponentActivity() {
 
     private fun button(label: String, action: () -> Unit) = MaterialButton(this).apply {
         cornerRadius = dp(14)
-        backgroundTintList = ColorStateList.valueOf(Color.rgb(239, 232, 216))
-        setTextColor(Color.rgb(66, 77, 52))
+        backgroundTintList = ColorStateList.valueOf(palette.ActiveBg.toArgb())
+        setTextColor(palette.Accent.toArgb())
         text = label
         textSize = 13f
         isAllCaps = false

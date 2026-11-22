@@ -1,14 +1,12 @@
 package cn.mudlife.app.timetable
 
 import android.content.Context
-import android.content.res.Configuration
 import androidx.core.graphics.ColorUtils
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
@@ -16,14 +14,14 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import cn.mudlife.app.R
+import cn.mudlife.app.ui.theme.AppAppearance
 import cn.mudlife.app.ui.theme.AppColors
 import cn.mudlife.app.ui.theme.DarkColors
 import cn.mudlife.app.ui.theme.MudLifeThemeSpecific
-import cn.mudlife.app.ui.theme.ThemeMode
 import cn.mudlife.app.utils.PrefsHelper
 
-internal fun darkCourseFill(swatch: Int) =
-    ColorUtils.blendARGB(DarkColors.Background.toArgb(), swatch, .50f)
+internal fun darkCourseFill(swatch: Int, paper: Int = DarkColors.Background.toArgb()) =
+    ColorUtils.blendARGB(paper, swatch, .50f)
 
 internal val timetableSheetSurface
     @Composable get() = if (AppColors.isDark) AppColors.SolidSurface else AppColors.Background
@@ -43,27 +41,12 @@ internal object TimetableType {
         fontWeight = FontWeight.Medium, fontFeatureSettings = "tnum")
 }
 
-internal fun timetableThemeMode(context: Context): ThemeMode {
-    val saved = try {
-        PrefsHelper.themeMode
-    } catch (_: UninitializedPropertyAccessException) {
-        // A desktop widget can open the timetable before MainActivity initializes preferences.
-        PrefsHelper.init(context.applicationContext)
-        PrefsHelper.themeMode
-    }
-    return ThemeMode.restore(saved)
-}
-
-internal fun timetableThemeIsDark(context: Context): Boolean {
-    val systemDark = context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
-    return timetableThemeMode(context).resolve(systemDark) == ThemeMode.DARK
-}
+internal fun timetableThemeIsDark(context: Context): Boolean =
+    PrefsHelper.appearance(context).colors(context).isDark
 
 @Composable
-internal fun TimetableTheme(mode: ThemeMode? = null, content: @Composable () -> Unit) {
-    val context = LocalContext.current
-    val resolved = mode ?: remember(context) { timetableThemeMode(context) }
-    MudLifeThemeSpecific(resolved) {
+internal fun TimetableTheme(appearance: AppAppearance? = null, content: @Composable () -> Unit) {
+    val timetableContent: @Composable () -> Unit = {
         val hostPress = LocalIndication.current
         val hostType = MaterialTheme.typography
         val type = remember(hostType) {
@@ -80,4 +63,6 @@ internal fun TimetableTheme(mode: ThemeMode? = null, content: @Composable () -> 
             CompositionLocalProvider(LocalIndication provides hostPress, content = content)
         }
     }
+    if (appearance == null) timetableContent()
+    else MudLifeThemeSpecific(appearance, timetableContent)
 }

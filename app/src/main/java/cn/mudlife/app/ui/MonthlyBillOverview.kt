@@ -12,7 +12,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.MotionDurationScale
@@ -30,7 +29,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -42,7 +40,6 @@ import cn.mudlife.app.ui.theme.AppColors
 import cn.mudlife.campuscard.Money
 import kotlinx.coroutines.delay
 import java.math.BigDecimal
-import java.time.YearMonth
 import java.util.Collections
 import java.util.Locale
 import kotlin.math.floor
@@ -58,7 +55,6 @@ internal fun MonthlyBillOverview(
     onDay: (Int?) -> Unit,
     onCategory: (CampusBillCategory) -> Unit
 ) {
-    var calendar by rememberSaveable { mutableStateOf(false) }
     val total = report.totalFen
     val days = remember(report, category) { report.dailyTotals(category) }
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -74,26 +70,13 @@ internal fun MonthlyBillOverview(
                 peak != null -> "峰值 ${peak.key}日 · ¥${Money.yuan(peak.value)}"
                 else -> ""
             }
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f).padding(end = 8.dp)) {
-                    Text(if (category == CampusBillCategory.ALL) "每日支出" else "${category.label} · 每日支出",
-                        fontSize = 17.sp, fontFamily = FontFamily.Serif, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary)
-                    if (caption.isNotEmpty()) Text(caption, color = AppColors.TextSecondary, fontSize = 12.sp)
-                }
-                Row(Modifier.clip(RoundedCornerShape(9.dp)).background(AppColors.Card).padding(3.dp)) {
-                    listOf("柱状", "月历").forEachIndexed { index, label ->
-                        val active = calendar == (index == 1)
-                        Box(Modifier.clip(RoundedCornerShape(7.dp)).background(if (active) AppColors.Accent else Color.Transparent)
-                            .clickable(role = Role.Button) { calendar = index == 1 }.semantics { selected = active }
-                            .padding(horizontal = 11.dp, vertical = 6.dp)) {
-                            Text(label, fontSize = 12.sp, color = if (active) AppColors.OnAccent else AppColors.TextSecondary)
-                        }
-                    }
-                }
+            Column {
+                Text(if (category == CampusBillCategory.ALL) "每日支出" else "${category.label} · 每日支出",
+                    fontSize = 17.sp, fontFamily = FontFamily.Serif, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary)
+                if (caption.isNotEmpty()) Text(caption, color = AppColors.TextSecondary, fontSize = 12.sp)
             }
             val pick: (Int) -> Unit = { date -> onDay(date.takeUnless { it == selectedDay }) }
-            if (calendar) BillMonthCalendar(report.month, report.until, days, selectedDay, pick)
-            else BillDayBars(report.until, days, selectedDay, pick, onDay)
+            BillDayBars(report.until, days, selectedDay, pick, onDay)
             if (total > 0) CategoryShares(report.categoryTotals, total, category, onCategory)
         }
         key(report.month) { OneBillNote(report.notes) }
@@ -164,48 +147,6 @@ private fun BillDayBars(until: Int, days: Map<Int, Long>, selection: Int?,
         Row(Modifier.fillMaxWidth().padding(start = 24.dp, top = 3.dp), horizontalArrangement = Arrangement.SpaceBetween) {
             listOf(1, (until + 1) / 2, until).distinct().forEach {
                 Text("${it}日", fontSize = 10.sp, color = AppColors.TextSecondary, lineHeight = 14.sp)
-            }
-        }
-    }
-}
-
-@Composable
-private fun BillMonthCalendar(month: YearMonth, until: Int, days: Map<Int, Long>, selection: Int?, pick: (Int) -> Unit) {
-    val offset = month.atDay(1).dayOfWeek.value - 1
-    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-        Row(Modifier.fillMaxWidth()) {
-            "一二三四五六日".forEach {
-                Text(it.toString(), Modifier.weight(1f), textAlign = TextAlign.Center, fontSize = 11.sp, color = AppColors.TextSecondary)
-            }
-        }
-        repeat((offset + month.lengthOfMonth() + 6) / 7) { week ->
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-                repeat(7) { weekday ->
-                    val day = week * 7 + weekday + 1 - offset
-                    if (day !in 1..month.lengthOfMonth()) Spacer(Modifier.weight(1f))
-                    else {
-                        val active = selection == day
-                        val enabled = day <= until
-                        val fen = days[day] ?: 0L
-                        val bg = when {
-                            active -> AppColors.Accent
-                            enabled && fen > 0 -> AppColors.ActiveBg
-                            else -> Color.Transparent
-                        }
-                        val fg = when {
-                            active -> AppColors.OnAccent
-                            !enabled -> AppColors.TextSecondary.copy(alpha = .45f)
-                            else -> AppColors.TextPrimary
-                        }
-                        Column(Modifier.weight(1f).clip(RoundedCornerShape(6.dp)).background(bg)
-                            .clickable(enabled = enabled, role = Role.Button) { pick(day) }
-                            .semantics { selected = active; contentDescription = if (enabled) "${day}日，支出${Money.yuan(fen)}元" else "${day}日" }
-                            .padding(vertical = 4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(day.toString(), fontSize = 12.sp, lineHeight = 15.sp, color = fg)
-                            Text(if (fen > 0) Money.yuan(fen) else " ", fontSize = 10.sp, lineHeight = 12.sp, maxLines = 1, color = fg)
-                        }
-                    }
-                }
             }
         }
     }

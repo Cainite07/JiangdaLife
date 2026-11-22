@@ -11,7 +11,8 @@ class UpdateManagerTest {
     @Test fun removesInstalledDownloadsAndAbandonedPartsWhileKeepingInstallRetries() {
         val previous = temp.newFile("mudlife_update_43.apk")
         val installed = temp.newFile("mudlife_update_44.apk")
-        val pending = temp.newFile("mudlife_update_45.apk")
+        val superseded = temp.newFile("mudlife_update_45.apk")
+        val pending = temp.newFile("mudlife_update_46.apk")
         val partial = temp.newFile("mudlife_update_46.apk.part")
         val unrelated = temp.newFile("other.apk")
         val similarlyNamed = temp.newFile("mudlife_update_40.apk.bak")
@@ -19,6 +20,7 @@ class UpdateManagerTest {
         assertFalse(previous.exists())
         assertFalse(installed.exists())
         assertFalse(partial.exists())
+        assertFalse(superseded.exists())
         assertTrue(pending.exists())
         assertTrue(unrelated.exists())
         assertTrue(similarlyNamed.exists())

@@ -38,6 +38,7 @@ import kotlin.math.max
 data class ThemeRevealController(
     val toggle: (Offset) -> Unit = {},
     val select: (ThemeMode, Offset) -> Unit = { _, _ -> },
+    val selectPalette: (ThemePalette, Offset) -> Unit = { _, _ -> },
     val transitioning: Boolean = false
 )
 val LocalThemeReveal = staticCompositionLocalOf { ThemeRevealController() }
@@ -74,13 +75,13 @@ private suspend fun capture(window: Window): Bitmap? {
 
 @Composable
 fun CircularRevealThemeHost(
-    themeModeState: MutableState<ThemeMode>,
-    onThemeChanged: (ThemeMode) -> Unit,
+    appearanceState: MutableState<AppAppearance>,
+    onAppearanceChanged: (AppAppearance) -> Unit,
     content: @Composable () -> Unit
 ) {
     val activity = LocalContext.current as Activity
     val systemDark = isSystemInDarkTheme()
-    val requested = themeModeState.value.resolve(systemDark)
+    val requested = appearanceState.value.resolve(systemDark)
     var rendered by remember { mutableStateOf(requested) }
     var previous by remember { mutableStateOf(rendered) }
     var snapshot by remember { mutableStateOf<Bitmap?>(null) }
@@ -90,17 +91,22 @@ fun CircularRevealThemeHost(
     var rootSize by remember { mutableStateOf(IntSize.Zero) }
     var transitioning by remember { mutableStateOf(false) }
     val fraction = remember { Animatable(0f) }
-    val onChanged by rememberUpdatedState(onThemeChanged)
-    val select: (ThemeMode, Offset) -> Unit = { next, point ->
-        if (!transitioning) {
+    val onChanged by rememberUpdatedState(onAppearanceChanged)
+    fun select(next: AppAppearance, point: Offset) {
+        if (!transitioning && next != appearanceState.value) {
             pendingOrigin = if (next.resolve(systemDark) != rendered) point else Offset.Unspecified
-            themeModeState.value = next
+            appearanceState.value = next
             onChanged(next)
         }
     }
+    val selectMode: (ThemeMode, Offset) -> Unit = { mode, point ->
+        select(appearanceState.value.copy(mode = mode), point)
+    }
     val controller = ThemeRevealController(
-        toggle = { select(if (rendered == ThemeMode.DARK) ThemeMode.LIGHT else ThemeMode.DARK, it) },
-        select = select, transitioning = transitioning)
+        toggle = { selectMode(if (rendered.mode == ThemeMode.DARK) ThemeMode.LIGHT else ThemeMode.DARK, it) },
+        select = selectMode,
+        selectPalette = { palette, point -> select(appearanceState.value.copy(palette = palette), point) },
+        transitioning = transitioning)
 
     LaunchedEffect(requested) {
         if (requested == rendered) return@LaunchedEffect
@@ -121,19 +127,21 @@ fun CircularRevealThemeHost(
             origin = Offset(point.x.coerceIn(0f, rootSize.width.toFloat()), point.y.coerceIn(0f, rootSize.height.toFloat()))
             pendingOrigin = Offset.Unspecified
             previous = rendered
-            fraction.snapTo(if (requested == ThemeMode.DARK) 0f else 1f)
+            val revealOld = previous.mode == ThemeMode.DARK && requested.mode == ThemeMode.LIGHT
+            fraction.snapTo(if (revealOld) 1f else 0f)
             snapshot = old
             rendered = requested
             withFrameNanos { }
-            fraction.animateTo(if (requested == ThemeMode.DARK) 1f else 0f, tween(420, easing = FastOutSlowInEasing))
+            fraction.animateTo(if (revealOld) 0f else 1f, tween(420, easing = FastOutSlowInEasing))
         } finally {
             // Drop the in-memory snapshot; never save it or manually recycle a GPU-referenced bitmap.
             snapshot = null
             transitioning = false
         }
     }
-    CompositionLocalProvider(LocalThemeMode provides themeModeState, LocalThemeReveal provides controller,
-        LocalThemeWindowDark provides ((if (snapshot != null) previous else rendered) == ThemeMode.DARK)) {
+    val revealOld = previous.mode == ThemeMode.DARK && rendered.mode == ThemeMode.LIGHT
+    CompositionLocalProvider(LocalAppearance provides appearanceState.value, LocalThemeReveal provides controller,
+        LocalThemeWindowDark provides ((if (snapshot != null) previous else rendered).mode == ThemeMode.DARK)) {
         MudLifeThemeSpecific(rendered) {
             Box(Modifier.fillMaxSize().background(AppColors.Background).onGloballyPositioned {
                 rootOffset = it.positionInWindow(); rootSize = it.size
@@ -147,7 +155,7 @@ fun CircularRevealThemeHost(
                         val radius = ThemeRevealGeometry.radius(size.width, size.height, origin.x, origin.y) * fraction.value
                         val circle = Path().apply { addOval(androidx.compose.ui.geometry.Rect(
                             origin.x - radius, origin.y - radius, origin.x + radius, origin.y + radius)) }
-                        clipPath(circle, clipOp = if (rendered == ThemeMode.DARK) ClipOp.Difference else ClipOp.Intersect) {
+                        clipPath(circle, clipOp = if (revealOld) ClipOp.Intersect else ClipOp.Difference) {
                             drawImage(image, topLeft = -rootOffset)
                         }
                     }

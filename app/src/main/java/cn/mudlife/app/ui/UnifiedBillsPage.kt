@@ -42,7 +42,7 @@ import java.time.YearMonth
 
 @OptIn(ExperimentalMaterialApi::class, ExperimentalMaterial3Api::class)
 @Composable internal fun UnifiedBillsPage(campus: CampusViewModel, life: MainViewModel, lifeLoggedIn: Boolean, schoolLogin: () -> Unit,
-    recharge: () -> Unit, logisticsLogin: () -> Unit, pageInsets: PaddingValues = PaddingValues(0.dp)) {
+    recharge: () -> Unit, pageInsets: PaddingValues = PaddingValues(0.dp)) {
     val context = LocalContext.current
     val tap = { HapticHelper.tick(context) }
     // Preserve the month stored by the previous combined statement.
@@ -56,7 +56,6 @@ import java.time.YearMonth
     var selectedDay by rememberSaveable(owner, deviceOwner, period) { mutableStateOf<Int?>(null) }
     var categoryMenu by remember { mutableStateOf(false) }
     var balanceOpen by rememberSaveable { mutableStateOf(false) }
-    var logisticsBillsOpen by rememberSaveable { mutableStateOf(false) }
     var monthMenu by remember { mutableStateOf(false) }
     var detail by remember(campus.currentCard?.account) { mutableStateOf<Bill?>(null) }
     var limit by remember(period, category, selectedDay, owner, deviceOwner) { mutableIntStateOf(50) }
@@ -94,8 +93,8 @@ import java.time.YearMonth
     val report = remember(month, combined, complete, previousComplete, today) {
         month?.let { MonthlyBillReport.build(it, combined, complete, previousComplete, today) }
     }
-    val allExpense = remember(month, monthRows, complete) {
-        if (month == null && (complete || monthRows.isNotEmpty())) CampusBillLedger.expense(monthRows) else null
+    val allExpense = remember(month, rows, complete) {
+        if (month == null && (complete || rows.isNotEmpty())) CampusBillLedger.expense(rows) else null
     }
     val hasBills = campus.hasSession || lifeLoggedIn
     val selectPeriod: (String) -> Unit = { value ->
@@ -136,21 +135,19 @@ import java.time.YearMonth
                                 }
                             }
                         }
-                        if (month == null) TextButton(onClick = { tap(); selectPeriod(YearMonth.now().toString()) }) { Text("本月月报") }
-                        TextButton(onClick = { tap(); balanceOpen = true }) {
-                            Icon(Icons.Outlined.AccountBalanceWallet, null, Modifier.size(16.dp))
-                            Spacer(Modifier.width(5.dp)); Text("校园卡")
+                        if (month == null) {
+                            TextButton(onClick = { tap(); selectPeriod(YearMonth.now().toString()) }) { Text("本月月报") }
+                        } else {
+                            TextButton(onClick = { tap(); balanceOpen = true }) {
+                                Icon(Icons.Outlined.AccountBalanceWallet, null, Modifier.size(16.dp))
+                                Spacer(Modifier.width(5.dp))
+                                Text("校园卡")
+                            }
                         }
                     }
                 }
             }
             if (!hasBills) item(key = "balance") { CampusBalance(campus, schoolLogin, recharge) }
-            item(key = "logisticsBills") {
-                TextButton(onClick = { tap(); logisticsBillsOpen = true }) {
-                    Text("后勤账单")
-                    Icon(Icons.Outlined.ChevronRight, null, Modifier.size(17.dp))
-                }
-            }
             if (hasBills) {
                 item(key = "summary") {
                     if (report != null) {
@@ -158,7 +155,9 @@ import java.time.YearMonth
                             MonthlyBillOverview(report, category, selectedDay, { selectedDay = it }, { category = it })
                         }
                     } else {
-                        Text("支出合计", color = AppColors.TextSecondary, fontSize = 12.sp)
+                        val title = if (category == CampusBillCategory.ALL) "支出合计" else category.label + "支出合计"
+                        Text(if (!complete && allExpense != null) "已同步 · $title" else title,
+                            color = AppColors.TextSecondary, fontSize = 12.sp)
                         Text(allExpense?.let { "¥ ${Money.yuan(it)}" } ?: "— —", color = AppColors.TextPrimary,
                             fontSize = 28.sp, modifier = Modifier.padding(bottom = 8.dp))
                     }
@@ -217,16 +216,18 @@ import java.time.YearMonth
                     }
                 }
                 if (displayRows.size > limit) item { TextButton(onClick = { tap(); limit += 50 }, modifier = Modifier.fillMaxWidth()) { Text("加载更多") } }
-                if (rows.isEmpty() && !refreshing) item { Text(if (campus.billError != null) "账单暂时无法加载" else "这个月份暂无${if (category == CampusBillCategory.ALL) "" else category.label}记录",
-                    color = AppColors.TextSecondary, modifier = Modifier.padding(vertical = 28.dp)) }
+                if (rows.isEmpty() && !refreshing) item {
+                    val periodLabel = if (month == null) "" else "这个月份"
+                    val categoryLabel = if (category == CampusBillCategory.ALL) "" else category.label
+                    Text(
+                        if (campus.billError != null) "账单暂时无法加载" else "${periodLabel}暂无${categoryLabel}记录",
+                        color = AppColors.TextSecondary, modifier = Modifier.padding(vertical = 28.dp))
+                }
             }
         }
         PullRefreshIndicator(refreshing, pull, Modifier.align(Alignment.TopCenter).padding(top = pageInsets.calculateTopPadding()),
             backgroundColor = AppColors.Card)
     }
-    if (logisticsBillsOpen) QzhqBillsSheet(life,
-        onLogin = { logisticsBillsOpen = false; logisticsLogin() },
-        onDismiss = { logisticsBillsOpen = false })
     if (balanceOpen && hasBills) {
         val dismiss = { balanceOpen = false }
         ModalBottomSheet(onDismissRequest = dismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),

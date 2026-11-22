@@ -10,6 +10,7 @@ import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import cn.mudlife.app.api.NetworkModule
+import cn.mudlife.app.timetable.TodayTimetableWidget
 import cn.mudlife.app.ui.MainViewModel
 import cn.mudlife.app.ui.UnifiedApp
 import cn.mudlife.app.ui.theme.*
@@ -31,18 +32,21 @@ class MainActivity : ComponentActivity() {
             window.isStatusBarContrastEnforced = false
             window.isNavigationBarContrastEnforced = false
         }
+        lifecycleScope.launch(Dispatchers.IO) { UpdateManager.prepareUpdateCache(this@MainActivity) }
         lifecycleScope.launch {
             withContext(Dispatchers.IO) {
                 AppLogger.init(this@MainActivity)
                 PrefsHelper.init(this@MainActivity)
-                UpdateManager.prepareUpdateCache(this@MainActivity)
                 NetworkModule.restoreFromPrefs()
             }
             setContent {
-                val mode = remember { mutableStateOf(ThemeMode.restore(PrefsHelper.themeMode)) }
+                val appearance = remember { mutableStateOf(PrefsHelper.appearance(this@MainActivity)) }
                 val life: MainViewModel = viewModel()
                 val campus: CampusViewModel = viewModel()
-                CircularRevealThemeHost(mode, onThemeChanged = { PrefsHelper.themeMode = it.name }) {
+                CircularRevealThemeHost(appearance, onAppearanceChanged = {
+                    PrefsHelper.saveAppearance(it)
+                    TodayTimetableWidget.refresh(this@MainActivity)
+                }) {
                     val windowDark = LocalThemeWindowDark.current
                     val background = AppColors.Background
                     SideEffect {

@@ -20,6 +20,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import cn.mudlife.app.ui.theme.AppColors
+import androidx.compose.ui.graphics.toArgb
 
 @Composable
 internal fun CourseColorsPanel(name: String, appearance: TimetableAppearance, dismiss: () -> Unit, back: () -> Unit) {
@@ -38,7 +39,7 @@ internal fun CourseColorsPanel(name: String, appearance: TimetableAppearance, di
             Row(Modifier.fillMaxWidth().padding(bottom = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 for ((label, value) in group) {
                     val chosen = current == value
-                    val color = Color(if (AppColors.isDark) darkCourseFill(value) else value)
+                    val color = Color(if (AppColors.isDark) darkCourseFill(value, AppColors.Background.toArgb()) else value)
                     Box(Modifier.weight(1f).heightIn(min = 56.dp).clip(RoundedCornerShape(8.dp))
                         .selectable(selected = chosen, role = Role.RadioButton, onClick = { choose(value) })
                         .semantics { contentDescription = label }, contentAlignment = Alignment.Center) {

@@ -7,6 +7,7 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.material3.Typography
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.sp
@@ -25,7 +26,7 @@ val LightColors = AppColorSet(
     Primary = Color(0xFF292F2B),
     Accent = Color(0xFF344E43), OnAccent = Color(0xFFFFFCF4),
     TextPrimary = Color(0xFF292F2B),
-    TextSecondary = Color(0xFF777B71),
+    TextSecondary = Color(0xFF656B61),
     Success = Color(0xFF537051), Warning = Color(0xFF98632D),
     Danger = Color(0xFFA34636), ActiveBg = Color(0xFFE8ECE3),
     SurfaceVariant = Color(0xFFE8ECE3), Border = Color(0xFFE4E3D8),
@@ -59,7 +60,7 @@ data class AppColorSet(
 )
 
 val LocalAppColors = staticCompositionLocalOf { LightColors }
-val LocalThemeMode = compositionLocalOf { mutableStateOf(ThemeMode.SYSTEM) }
+val LocalAppearance = compositionLocalOf { AppAppearance() }
 
 /** Convenience: use AppColors.xxx in composable functions */
 object AppColors {
@@ -82,9 +83,9 @@ object AppColors {
 }
 
 @Composable
-fun MudLifeThemeSpecific(mode: ThemeMode, content: @Composable () -> Unit) {
-    val dark = mode == ThemeMode.DARK || (mode == ThemeMode.SYSTEM && isSystemInDarkTheme())
-    val set = if (dark) DarkColors else LightColors
+fun MudLifeThemeSpecific(appearance: AppAppearance, content: @Composable () -> Unit) {
+    val dark = appearance.mode.resolve(isSystemInDarkTheme()) == ThemeMode.DARK
+    val set = appearance.palette.colors(dark)
     val scheme = if (dark) darkColorScheme(
         primary = set.Accent,
         primaryContainer = set.ActiveBg,
@@ -94,9 +95,9 @@ fun MudLifeThemeSpecific(mode: ThemeMode, content: @Composable () -> Unit) {
         background = set.Background,
         surface = set.Card,
         surfaceDim = set.Background,
-        surfaceBright = Color(0xFF414A43),
-        surfaceContainerLowest = Color(0xFF131613),
-        surfaceContainerLow = Color(0xFF1E231F),
+        surfaceBright = set.SurfaceVariant,
+        surfaceContainerLowest = lerp(set.Background, Color.Black, .18f),
+        surfaceContainerLow = lerp(set.Background, set.Card, .50f),
         surfaceContainer = set.Card,
         surfaceContainerHigh = set.SolidSurface,
         surfaceContainerHighest = set.SurfaceVariant,
@@ -104,7 +105,7 @@ fun MudLifeThemeSpecific(mode: ThemeMode, content: @Composable () -> Unit) {
         onSurface = set.TextPrimary,
         onBackground = set.TextPrimary,
         onSurfaceVariant = set.TextSecondary,
-        outline = Color(0xFF738176),
+        outline = set.TextSecondary.copy(alpha = .72f),
         outlineVariant = set.Border,
         error = set.Danger,
         onError = Color(0xFF34201C),
@@ -118,7 +119,7 @@ fun MudLifeThemeSpecific(mode: ThemeMode, content: @Composable () -> Unit) {
         onTertiaryContainer = set.Warning,
         inverseSurface = set.TextPrimary,
         inverseOnSurface = set.Background,
-        inversePrimary = LightColors.Accent,
+        inversePrimary = appearance.palette.light.Accent,
         surfaceVariant = set.SurfaceVariant
     ) else lightColorScheme(
         primary = set.Accent,
@@ -132,6 +133,10 @@ fun MudLifeThemeSpecific(mode: ThemeMode, content: @Composable () -> Unit) {
         surfaceContainerHigh = set.SolidSurface,
         surfaceContainerHighest = set.SolidSurface,
         onPrimary = set.OnAccent,
+        onSecondary = set.OnAccent,
+        inverseSurface = appearance.palette.dark.SolidSurface,
+        inverseOnSurface = appearance.palette.dark.TextPrimary,
+        inversePrimary = appearance.palette.dark.Accent,
         onSurface = set.TextPrimary,
         onBackground = set.TextPrimary,
         onSurfaceVariant = set.TextSecondary,
@@ -155,11 +160,4 @@ fun MudLifeThemeSpecific(mode: ThemeMode, content: @Composable () -> Unit) {
             CompositionLocalProvider(LocalIndication provides rememberPaperPressIndication(set.Accent), content = content)
         }
     }
-}
-
-@Composable
-fun MudLifeTheme(content: @Composable () -> Unit) {
-    val themeModeState = LocalThemeMode.current
-    val currentMode by themeModeState
-    MudLifeThemeSpecific(currentMode, content)
 }

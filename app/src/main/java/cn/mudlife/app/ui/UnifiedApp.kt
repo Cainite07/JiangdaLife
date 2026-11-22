@@ -41,12 +41,12 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.DialogWindowProvider
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import cn.mudlife.app.BuildConfig
@@ -113,6 +113,8 @@ fun UnifiedApp(life: MainViewModel, campus: CampusViewModel) {
     var account by remember { mutableStateOf("") }
     var showSchoolTestTools by rememberSaveable { mutableStateOf(false) }
     var logisticsLogin by rememberSaveable { mutableStateOf(false) }
+    var appearancePicker by remember { mutableStateOf<PreferencePicker?>(null) }
+    val theme = LocalThemeReveal.current
     var codesBack by rememberSaveable { mutableStateOf("") }
     val snackbar = remember { SnackbarHostState() }
     val school = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
@@ -189,15 +191,15 @@ fun UnifiedApp(life: MainViewModel, campus: CampusViewModel) {
         } }
     }
     val scope = rememberCoroutineScope()
-    val guideTransition = remember { Animatable(1f) }
+    val entryTransition = remember { Animatable(1f) }
     var leavingGuide by remember { mutableStateOf(false) }
     val enterHome: (Boolean) -> Unit = { remind ->
         leavingGuide = true
         scope.launch {
-            guideTransition.animateTo(0f, tween(100))
+            entryTransition.animateTo(0f, tween(100))
             tab = 0
             page = ""
-            guideTransition.animateTo(1f, tween(220, easing = FastOutSlowInEasing))
+            entryTransition.animateTo(1f, tween(220, easing = FastOutSlowInEasing))
             leavingGuide = false
             if (remind) showGuideLocation = true
         }
@@ -227,17 +229,18 @@ fun UnifiedApp(life: MainViewModel, campus: CampusViewModel) {
     }
     BackHandler(page.isNotEmpty() || tab != 0, onBack = back)
     val edgeRoot = page.isEmpty()
-    Scaffold(containerColor = AppColors.Background, snackbarHost = { SnackbarHost(snackbar) }, bottomBar = {
-        if (page.isEmpty() && !life.isShowering) {
-            Box(Modifier.graphicsLayer { alpha = guideTransition.value }) {
-                CampusNavigationBar(tab) { tab = it }
+    Scaffold(
+        containerColor = AppColors.Background, snackbarHost = { SnackbarHost(snackbar) }, bottomBar = {
+            if (page.isEmpty() && !life.isShowering) {
+                CampusNavigationBar(tab, life.updateInfo != null) { tab = it }
             }
         }
-    }) { insets ->
-        Box(Modifier.fillMaxSize().graphicsLayer {
-            alpha = guideTransition.value
-            if (leavingGuide && page.isEmpty()) translationY = 6.dp.toPx() * (1f - alpha)
-        }) {
+    ) { insets ->
+        val guideMotion = if (leavingGuide) Modifier.graphicsLayer {
+            if (page == "setup") alpha = entryTransition.value
+            else if (page.isEmpty() && tab == 0) translationY = 8.dp.toPx() * (1f - entryTransition.value)
+        } else Modifier
+        Box(Modifier.fillMaxSize().then(guideMotion)) {
             val frame = if (edgeRoot || page == "setup") Modifier else Modifier.padding(insets).consumeWindowInsets(insets)
             RouteMotion(tab, page, frame) {
             pageState.SaveableStateProvider(page.ifEmpty { "tab:$tab" }) {
@@ -319,19 +322,35 @@ fun UnifiedApp(life: MainViewModel, campus: CampusViewModel) {
                     }
                 }
                 tab == 2 -> UnifiedBillsPage(campus, life, loggedIn, loginSchool, openRecharge,
-                    logisticsLogin = { logisticsLogin = true },
                     pageInsets = if (edgeRoot) insets else PaddingValues(0.dp))
                 else -> UnifiedProfile(accounts = { page = "accounts" },
                     signedInAccounts = signedInAccounts,
                     guideEnabled = guideEnabled, onGuideEnabled = setGuideEnabled,
-                    checkingUpdate = life.isCheckingUpdate, updateAvailable = life.updateInfo != null,
+                    checkingUpdate = life.isCheckingUpdate, updateVersion = life.updateInfo?.versionName,
                     checkUpdate = { life.checkUpdate(true) },
+                    openPicker = { if (!theme.transitioning) appearancePicker = it },
                     pageInsets = if (edgeRoot) insets else PaddingValues(0.dp))
             }
             }
             }
             if (edgeRoot) Spacer(Modifier.fillMaxWidth().windowInsetsTopHeight(WindowInsets.statusBars)
                 .background(Brush.verticalGradient(listOf(AppColors.Background.copy(alpha = .45f), Color.Transparent))))
+        }
+    }
+    appearancePicker?.let { picker ->
+        val dismiss = { appearancePicker = null }
+        val (mode, palette) = LocalAppearance.current
+        PreferenceDialog(picker.title, dismiss) {
+            when (picker) {
+                PreferencePicker.MODE -> AppearanceOptions(mode, dismiss) { next, point ->
+                    dismiss()
+                    theme.select(next, point)
+                }
+                PreferencePicker.PALETTE -> PaletteOptions(palette, dismiss) { next, point ->
+                    dismiss()
+                    theme.selectPalette(next, point)
+                }
+            }
         }
     }
     AppUpdateDialog(life)
@@ -440,17 +459,18 @@ fun UnifiedApp(life: MainViewModel, campus: CampusViewModel) {
 }
 
 @Composable internal fun SettingsRow(
-    title: String, icon: ImageVector, trailing: String = "", indicator: Boolean = false, action: () -> Unit
+    title: String, icon: ImageVector, trailing: String = "", badge: String? = null, action: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
-    Row(Modifier.fillMaxWidth().clickable { HapticHelper.tick(context); action() }.heightIn(min = 55.dp),
+    val click = if (action == null) Modifier else Modifier.clickable { action(); HapticHelper.tick(context) }
+    Row(Modifier.fillMaxWidth().then(click).heightIn(min = 55.dp),
         verticalAlignment = Alignment.CenterVertically) {
         Icon(icon, null, Modifier.size(21.dp), tint = AppColors.TextPrimary)
         Text(title, Modifier.weight(1f).padding(start = 14.dp), fontSize = 15.sp)
         if (trailing.isNotEmpty()) Text(trailing, fontSize = 12.sp, color = AppColors.TextSecondary)
-        if (indicator) Box(Modifier.size(7.dp).background(AppColors.Success, CircleShape)
-            .semantics { contentDescription = "有新版本" })
-        Icon(Icons.Outlined.ChevronRight, null, Modifier.padding(start = 7.dp).size(18.dp), tint = AppColors.TextSecondary)
+        if (badge != null) Text(badge, Modifier.background(AppColors.ActiveBg, RoundedCornerShape(8.dp))
+            .padding(horizontal = 8.dp, vertical = 4.dp), fontSize = 12.sp, color = AppColors.Accent)
+        if (action != null) Icon(Icons.Outlined.ChevronRight, null, Modifier.padding(start = 7.dp).size(18.dp), tint = AppColors.TextSecondary)
     }
 }
 
@@ -463,17 +483,12 @@ fun UnifiedApp(life: MainViewModel, campus: CampusViewModel) {
 @Composable private fun UnifiedProfile(
     accounts: () -> Unit, signedInAccounts: Int,
     guideEnabled: Boolean, onGuideEnabled: (Boolean) -> Unit,
-    checkingUpdate: Boolean, updateAvailable: Boolean, checkUpdate: () -> Unit, pageInsets: PaddingValues
+    checkingUpdate: Boolean, updateVersion: String?, checkUpdate: () -> Unit,
+    openPicker: (PreferencePicker) -> Unit, pageInsets: PaddingValues
 ) {
-    val theme = LocalThemeReveal.current
     val context = LocalContext.current
     var feedback by remember { mutableStateOf(PrefsHelper.touchFeedback) }
-    var appearance by remember { mutableStateOf(false) }
-    val mode = LocalThemeMode.current.value
-    if (appearance) AppearancePicker(mode, { appearance = false }) { next, point ->
-        appearance = false
-        theme.select(next, point)
-    }
+    val (mode, palette) = LocalAppearance.current
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(pageInsets).padding(horizontal = 22.dp).padding(bottom = 22.dp)) {
         PageTitle("我的", padded = false)
         SettingsGroup {
@@ -482,7 +497,9 @@ fun UnifiedApp(life: MainViewModel, campus: CampusViewModel) {
         }
         SectionLabel("偏好设置")
         SettingsGroup {
-            SettingsRow("外观", Icons.Outlined.Palette, mode.label) { if (!theme.transitioning) appearance = true }
+            SettingsRow("外观", Icons.Outlined.Brightness6, mode.label) { openPicker(PreferencePicker.MODE) }
+            SettingsDivider()
+            SettingsRow("主题色", Icons.Outlined.Palette, palette.label) { openPicker(PreferencePicker.PALETTE) }
             SettingsDivider()
             ProfileToggle("启动引导", Icons.Outlined.PlayCircleOutline, guideEnabled) {
                 HapticHelper.tick(context)
@@ -497,12 +514,19 @@ fun UnifiedApp(life: MainViewModel, campus: CampusViewModel) {
         }
         SectionLabel("关于")
         SettingsGroup {
-            SettingsRow("检查更新", Icons.Outlined.SystemUpdate, if (checkingUpdate) "检查中…" else "",
-                indicator = updateAvailable, action = checkUpdate)
-            SettingsDivider()
             SettingsRow("GitHub", Icons.Outlined.Code) { UpdateManager.openBrowser(context, UpdateManager.GITHUB_REPO_URL) }
             SettingsDivider()
             SettingsRow("Gitee", Icons.Outlined.Download) { UpdateManager.openBrowser(context, UpdateManager.GITEE_REPO_URL) }
+            SettingsDivider()
+            SettingsRow(
+                "检查更新", Icons.Outlined.SystemUpdate,
+                trailing = if (checkingUpdate && updateVersion == null) "检查中…" else "",
+                badge = updateVersion?.let { "新版本 " + it.withVersionPrefix() },
+                action = checkUpdate
+            )
+            SettingsDivider()
+            val version = BuildConfig.VERSION_NAME.removeSuffix("-refresh-preview").withVersionPrefix()
+            SettingsRow("当前版本", Icons.Outlined.Info, version + if (BuildConfig.DEBUG) " · 预览版" else "")
         }
     }
 }
@@ -523,19 +547,54 @@ fun UnifiedApp(life: MainViewModel, campus: CampusViewModel) {
     }
 }
 
-@Composable private fun AppearancePicker(mode: ThemeMode, dismiss: () -> Unit, select: (ThemeMode, Offset) -> Unit) {
-    AlertDialog(onDismissRequest = dismiss, title = { Text("外观") }, text = {
-        Column {
-            ThemeMode.entries.forEach { option ->
-                AppearanceOption(option, mode == option) { point ->
-                    if (mode == option) dismiss() else select(option, point)
-                }
-            }
-        }
-    }, confirmButton = { TextButton(onClick = dismiss) { Text("关闭") } })
+private fun String.withVersionPrefix() = if (startsWith("v", ignoreCase = true)) this else "v$this"
+
+private enum class PreferencePicker(val title: String) { MODE("外观"), PALETTE("主题色") }
+
+@Composable private fun PreferenceDialog(title: String, dismiss: () -> Unit, content: @Composable () -> Unit) {
+    AlertDialog(
+        onDismissRequest = dismiss,
+        title = {
+            val window = (LocalView.current.parent as? DialogWindowProvider)?.window
+            SideEffect { window?.setWindowAnimations(android.R.style.Animation) }
+            Text(title)
+        },
+        text = { Column(Modifier.heightIn(max = 330.dp).verticalScroll(rememberScrollState())) { content() } },
+        confirmButton = { TextButton(onClick = dismiss) { Text("关闭") } }
+    )
 }
 
-@Composable private fun AppearanceOption(mode: ThemeMode, selected: Boolean, select: (Offset) -> Unit) {
+@Composable private fun AppearanceOptions(mode: ThemeMode, dismiss: () -> Unit, select: (ThemeMode, Offset) -> Unit) {
+    ThemeMode.entries.forEach { option ->
+        AppearanceOption(option.label, mode == option) { point ->
+            if (mode == option) dismiss() else select(option, point)
+        }
+    }
+}
+
+@Composable private fun PaletteOptions(palette: ThemePalette, dismiss: () -> Unit, select: (ThemePalette, Offset) -> Unit) {
+    ThemePalette.entries.forEach { option ->
+        AppearanceOption(option.label, palette == option, swatch = {
+            Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                PaletteSwatch(option.light)
+                PaletteSwatch(option.dark)
+            }
+        }) { point ->
+            if (palette == option) dismiss() else select(option, point)
+        }
+    }
+}
+
+@Composable private fun PaletteSwatch(colors: AppColorSet) {
+    Box(Modifier.size(23.dp).background(colors.Background, CircleShape)
+        .border(1.dp, colors.Border, CircleShape), contentAlignment = Alignment.Center) {
+        Box(Modifier.size(9.dp).background(colors.Accent, CircleShape))
+    }
+}
+
+@Composable private fun AppearanceOption(
+    label: String, selected: Boolean, swatch: @Composable () -> Unit = {}, select: (Offset) -> Unit
+) {
     val context = LocalContext.current
     val view = LocalView.current
     val interactions = remember { MutableInteractionSource() }
@@ -557,7 +616,8 @@ fun UnifiedApp(life: MainViewModel, campus: CampusViewModel) {
                 select(origin)
             }).padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         RadioButton(selected, onClick = null)
-        Text(mode.label, Modifier.padding(start = 14.dp))
+        Text(label, Modifier.weight(1f).padding(start = 14.dp, end = 10.dp))
+        swatch()
     }
 }
 
@@ -585,15 +645,19 @@ fun UnifiedApp(life: MainViewModel, campus: CampusViewModel) {
     expired: Boolean = false, enabled: Boolean = true, showProgress: Boolean = false, action: () -> Unit) {
     val context = LocalContext.current
     val signedIn = connected && !expired
-    val rowModifier = if (showProgress) {
-        val highlight by animateColorAsState(
-            if (signedIn) AppColors.ActiveBg else Color.Transparent, label = "accountLoginProgress")
-        Modifier.clip(RoundedCornerShape(12.dp)).background(highlight)
-    } else Modifier
-    Row(Modifier.fillMaxWidth().then(rowModifier).clickable(enabled = enabled) { HapticHelper.tick(context); action() }
-        .padding(horizontal = if (showProgress) 8.dp else 0.dp, vertical = 16.dp),
+    Row(Modifier.fillMaxWidth().clickable(enabled = enabled) { HapticHelper.tick(context); action() }
+        .padding(horizontal = if (showProgress) 14.dp else 0.dp, vertical = if (showProgress) 13.dp else 16.dp),
         verticalAlignment = Alignment.CenterVertically) {
-        Icon(icon, null, Modifier.size(23.dp), tint = AppColors.Accent)
+        if (showProgress) {
+            val highlight by animateColorAsState(
+                if (signedIn) AppColors.ActiveBg else AppColors.Accent.copy(alpha = .08f), label = "accountLoginProgress")
+            Box(Modifier.size(36.dp).background(highlight, RoundedCornerShape(10.dp)),
+                contentAlignment = Alignment.Center) {
+                Icon(icon, null, Modifier.size(20.dp), tint = AppColors.Accent)
+            }
+        } else {
+            Icon(icon, null, Modifier.size(23.dp), tint = AppColors.Accent)
+        }
         Column(Modifier.weight(1f).padding(horizontal = 13.dp)) {
             Text(title, fontSize = 15.sp, fontWeight = FontWeight.Medium)
             Text(purpose, fontSize = 12.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(top = 5.dp))

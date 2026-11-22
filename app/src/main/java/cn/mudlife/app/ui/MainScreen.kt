@@ -82,6 +82,8 @@ fun MainScreen(
             } else {
                 viewModel.toastMessage = "未识别到有效二维码"
             }
+        } else {
+            result.data?.getStringExtra(QrScanActivity.EXTRA_ERROR)?.let { viewModel.toastMessage = it }
         }
     }
 

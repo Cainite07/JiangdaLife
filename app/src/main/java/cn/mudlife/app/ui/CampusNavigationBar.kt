@@ -41,7 +41,7 @@ private val sections = listOf("首页" to Icons.Outlined.Home, "课表" to Icons
     "账单" to Icons.Outlined.ReceiptLong, "我的" to Icons.Outlined.PersonOutline)
 
 @Composable
-internal fun CampusNavigationBar(selected: Int, select: (Int) -> Unit) {
+internal fun CampusNavigationBar(selected: Int, updateAvailable: Boolean, select: (Int) -> Unit) {
     val context = LocalContext.current
     val paper = AppColors.Background
     val indicator = AppColors.ActiveBg.copy(alpha = .91f)
@@ -82,6 +82,12 @@ internal fun CampusNavigationBar(selected: Int, select: (Int) -> Unit) {
                     }.padding(top = 3.dp, bottom = 3.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Box(Modifier.height(29.dp), contentAlignment = Alignment.Center) {
                         Icon(icon, null, Modifier.size(22.dp), tint = ink)
+                        if (index == sections.lastIndex && updateAvailable) {
+                            Text("更新", Modifier.align(Alignment.TopEnd).offset(x = 20.dp, y = (-3).dp)
+                                .background(AppColors.ActiveBg, RoundedCornerShape(6.dp))
+                                .padding(horizontal = 4.dp, vertical = 1.dp),
+                                fontSize = 9.sp, lineHeight = 11.sp, color = AppColors.Accent, maxLines = 1)
+                        }
                     }
                     Text(label, fontSize = 11.sp, lineHeight = 16.sp, maxLines = 1, color = ink)
                 }

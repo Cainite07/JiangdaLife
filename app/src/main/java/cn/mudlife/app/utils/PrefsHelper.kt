@@ -7,6 +7,9 @@ import androidx.security.crypto.MasterKey
 import com.google.gson.Gson
 import com.google.gson.JsonParser
 import cn.mudlife.app.model.ActiveOrder
+import cn.mudlife.app.ui.theme.AppAppearance
+import cn.mudlife.app.ui.theme.ThemeMode
+import cn.mudlife.app.ui.theme.ThemePalette
 
 object PrefsHelper {
     private lateinit var prefs: SharedPreferences
@@ -279,9 +282,18 @@ object PrefsHelper {
 
     fun clearActiveOrders() = prefs.edit().remove("activeOrders").apply()
 
-    var themeMode: String
-        get() = prefs.getString("themeMode", "SYSTEM") ?: "SYSTEM"
-        set(value) = prefs.edit().putString("themeMode", value).apply()
+    fun appearance(context: Context): AppAppearance {
+        if (!::prefs.isInitialized) init(context.applicationContext)
+        return AppAppearance(
+            ThemeMode.restore(prefs.getString("themeMode", "").orEmpty()),
+            ThemePalette.restore(prefs.getString("themePalette", "").orEmpty())
+        )
+    }
+
+    fun saveAppearance(appearance: AppAppearance) {
+        prefs.edit().putString("themeMode", appearance.mode.name)
+            .putString("themePalette", appearance.palette.name).apply()
+    }
 
     var manualBalance: String get() = prefs.getString("manualBalance", "") ?: ""; set(v) = prefs.edit().putString("manualBalance", v).apply()
     var manualBalanceTime: Long get() = prefs.getLong("manualBalanceTime", 0L); set(v) = prefs.edit().putLong("manualBalanceTime", v).apply()

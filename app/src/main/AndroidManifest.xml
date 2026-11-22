@@ -25,6 +25,10 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.MudLife">
 
+        <meta-data
+            android:name="android.webkit.WebView.MetricsOptOut"
+            android:value="true" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"

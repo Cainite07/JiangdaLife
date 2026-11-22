@@ -7,11 +7,16 @@ import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.res.ColorStateList
 import android.os.Build
 import android.os.Bundle
 import android.util.SizeF
 import android.view.View
 import android.widget.RemoteViews
+import androidx.compose.ui.graphics.toArgb
+import cn.mudlife.app.ui.theme.AppColorSet
+import cn.mudlife.app.ui.theme.ThemeMode
+import cn.mudlife.app.utils.PrefsHelper
 import cn.mudlife.app.R
 import cn.mudlife.campuscard.SessionStore
 import java.time.LocalDate
@@ -73,10 +78,15 @@ internal data class TodayAgenda(val date: String, val message: String, val items
     }
 }
 
-private fun itemView(context: Context, item: AgendaItem, open: PendingIntent) = RemoteViews(context.packageName, R.layout.today_timetable_row).apply {
+private fun itemView(context: Context, item: AgendaItem, open: PendingIntent, light: AppColorSet, dark: AppColorSet) =
+    RemoteViews(context.packageName, R.layout.today_timetable_row).apply {
     setTextViewText(R.id.tt_widget_course, item.name)
     setTextViewText(R.id.tt_widget_location_time, if (item.detail.isEmpty()) item.periods else "${item.periods} · ${item.detail}")
     setOnClickPendingIntent(R.id.tt_widget_row, open)
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        setColorInt(R.id.tt_widget_course, "setTextColor", light.TextPrimary.toArgb(), dark.TextPrimary.toArgb())
+        setColorInt(R.id.tt_widget_location_time, "setTextColor", light.TextSecondary.toArgb(), dark.TextSecondary.toArgb())
+    }
 }
 
 internal data class AgendaCardSize(val minHeightDp: Float, val visibleRows: Int, val remainingRows: Int)
@@ -89,15 +99,27 @@ internal fun agendaCardSizes(total: Int, fixedHeightPx: Int, rowHeightPx: Int, d
     }
 }
 
-private fun agendaCard(context: Context, agenda: TodayAgenda, size: AgendaCardSize, open: PendingIntent) =
+private fun agendaCard(context: Context, agenda: TodayAgenda, size: AgendaCardSize, open: PendingIntent,
+                       light: AppColorSet, dark: AppColorSet) =
     RemoteViews(context.packageName, R.layout.today_timetable_widget).apply {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            setColorStateList(R.id.tt_widget_root, "setBackgroundTintList", ColorStateList.valueOf(light.Card.toArgb()),
+                ColorStateList.valueOf(dark.Card.toArgb()))
+            setColorStateList(R.id.tt_widget_more, "setBackgroundTintList", ColorStateList.valueOf(light.ActiveBg.toArgb()),
+                ColorStateList.valueOf(dark.ActiveBg.toArgb()))
+            setColorInt(R.id.tt_widget_rule, "setBackgroundColor", light.Border.toArgb(), dark.Border.toArgb())
+            setColorInt(R.id.tt_widget_title, "setTextColor", light.TextPrimary.toArgb(), dark.TextPrimary.toArgb())
+            setColorInt(R.id.tt_widget_more, "setTextColor", light.Accent.toArgb(), dark.Accent.toArgb())
+            setColorInt(R.id.tt_widget_date, "setTextColor", light.TextSecondary.toArgb(), dark.TextSecondary.toArgb())
+            setColorInt(R.id.tt_widget_empty, "setTextColor", light.TextSecondary.toArgb(), dark.TextSecondary.toArgb())
+        }
         setTextViewText(R.id.tt_widget_date, agenda.date)
         setTextViewText(R.id.tt_widget_empty, agenda.message)
         setViewVisibility(R.id.tt_widget_empty, if (agenda.items.isEmpty()) View.VISIBLE else View.GONE)
         setTextViewText(R.id.tt_widget_more, context.getString(R.string.timetable_widget_more, size.remainingRows))
         setViewVisibility(R.id.tt_widget_more, if (size.remainingRows > 0) View.VISIBLE else View.GONE)
         removeAllViews(R.id.tt_widget_rows)
-        for (index in 0 until size.visibleRows) addView(R.id.tt_widget_rows, itemView(context, agenda.items[index], open))
+        for (index in 0 until size.visibleRows) addView(R.id.tt_widget_rows, itemView(context, agenda.items[index], open, light, dark))
         setOnClickPendingIntent(R.id.tt_widget_root, null)
         setOnClickPendingIntent(R.id.tt_widget_header, open)
         setOnClickPendingIntent(R.id.tt_widget_empty, open)
@@ -109,10 +131,14 @@ private fun sizedAgendaCard(context: Context, agenda: TodayAgenda, open: Pending
         resources.getDimensionPixelSize(R.dimen.tt_widget_header_height) + resources.getDimensionPixelSize(R.dimen.tt_widget_rule_height)
     val rowHeight = resources.getDimensionPixelSize(R.dimen.tt_widget_row_height)
     val sizes = agendaCardSizes(agenda.items.size, fixedHeight, rowHeight, resources.displayMetrics.density)
-    if (sizes.size == 1) return agendaCard(context, agenda, sizes.first(), open)
+    val appearance = PrefsHelper.appearance(context)
+    val light = appearance.palette.colors(appearance.mode == ThemeMode.DARK)
+    val dark = appearance.palette.colors(appearance.mode != ThemeMode.LIGHT)
+    fun card(size: AgendaCardSize) = agendaCard(context, agenda, size, open, light, dark)
+    if (sizes.size == 1) return card(sizes.first())
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         val layouts = sizes.associate { size ->
-            SizeF(1f, size.minHeightDp) to agendaCard(context, agenda, size, open)
+            SizeF(1f, size.minHeightDp) to card(size)
         }
         return RemoteViews(layouts)
     }
@@ -121,8 +147,8 @@ private fun sizedAgendaCard(context: Context, agenda: TodayAgenda, open: Pending
     val portraitHeight = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT).takeIf { it > 0 } ?: landscapeHeight
     val landscapeSize = sizes.last { it.minHeightDp <= landscapeHeight }
     val portraitSize = sizes.last { it.minHeightDp <= portraitHeight }
-    val portrait = agendaCard(context, agenda, portraitSize, open)
-    return if (landscapeSize == portraitSize) portrait else RemoteViews(agendaCard(context, agenda, landscapeSize, open), portrait)
+    val portrait = card(portraitSize)
+    return if (landscapeSize == portraitSize) portrait else RemoteViews(card(landscapeSize), portrait)
 }
 
 class TodayTimetableWidget : AppWidgetProvider() {

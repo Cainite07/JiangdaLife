@@ -7,8 +7,7 @@ import android.app.Activity
 import android.app.Dialog
 import android.content.res.ColorStateList
 import androidx.compose.ui.graphics.toArgb
-import cn.mudlife.app.ui.theme.DarkColors
-import cn.mudlife.app.ui.theme.LightColors
+import cn.mudlife.app.utils.PrefsHelper
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -155,8 +154,8 @@ class TimetableImportActivity : Activity() {
         if (::account.isInitialized && account.isNotEmpty()) currentAccount()
     }
 
-    private val night by lazy { timetableThemeIsDark(this) }
-    private val palette by lazy { if (night) DarkColors else LightColors }
+    private val palette by lazy { PrefsHelper.appearance(this).colors(this) }
+    private val night get() = palette.isDark
     private val surface get() = palette.Background.toArgb()
     private val soft get() = palette.SurfaceVariant.toArgb()
     private val rule get() = palette.Border.toArgb()
@@ -712,7 +711,6 @@ class TimetableImportActivity : Activity() {
                                 fail("考试信息保存失败，请重试。")
                                 return@evaluateJavascript
                             }
-                            CookieManager.getInstance().flush()
                             setResult(RESULT_OK, Intent().putExtra(EXTRA_EXAM_TERM, term.label))
                             finish()
                         }
@@ -876,6 +874,11 @@ class TimetableImportActivity : Activity() {
             pages.childCount > 1 -> closePopup()
             else -> finish()
         }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        if (::browser.isInitialized) CookieManager.getInstance().flush()
     }
 
     override fun onDestroy() {

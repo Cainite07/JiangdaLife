@@ -55,13 +55,22 @@ object UpdateManager {
         cachePrepared = true
     }
 
-    internal fun pruneUpdateFiles(cache: File, installedVersion: Int) {
-        cache.listFiles()?.forEach { file ->
-            if (!file.isFile) return@forEach
-            val match = updateArtifact.matchEntire(file.name) ?: return@forEach
-            val version = match.groupValues[1].toIntOrNull() ?: return@forEach
-            if (version <= installedVersion || match.groups[2] != null) file.delete()
+    internal fun pruneUpdateFiles(cache: File, installedVersion: Int, keep: File? = null) {
+        val completed = cache.listFiles().orEmpty().mapNotNull { file ->
+            if (!file.isFile) return@mapNotNull null
+            val match = updateArtifact.matchEntire(file.name) ?: return@mapNotNull null
+            val version = match.groupValues[1].toIntOrNull() ?: return@mapNotNull null
+            val partial = match.groups[2] != null
+            if (partial && keep != null) return@mapNotNull null
+            if (version <= installedVersion || partial) {
+                file.delete()
+                null
+            } else {
+                file to version
+            }
         }
+        val retained = keep ?: completed.maxByOrNull { it.second }?.first
+        completed.forEach { (file, _) -> if (file != retained) file.delete() }
     }
 
     private val gson = Gson()
@@ -139,6 +148,7 @@ object UpdateManager {
         prepareUpdateCache(context)
         val destFile = File(context.cacheDir, "mudlife_update_${info.versionCode}.apk")
         if (destFile.isFile && runCatching { validateUpdate(context, destFile, info.versionCode) }.isSuccess) {
+            pruneUpdateFiles(context.cacheDir, BuildConfig.VERSION_CODE, keep = destFile)
             return@withContext Result.success(destFile)
         }
         destFile.delete()
@@ -148,6 +158,7 @@ object UpdateManager {
             downloader.download(downloadUrls(info), destFile,
                 onProgress = { state -> withContext(Dispatchers.Main) { onProgress(state) } },
                 validate = { validateUpdate(context, it, info.versionCode) })
+            pruneUpdateFiles(context.cacheDir, BuildConfig.VERSION_CODE, keep = destFile)
             Result.success(destFile)
         } catch (cancelled: CancellationException) { throw cancelled }
           catch (e: Exception) { Result.failure(e) }
