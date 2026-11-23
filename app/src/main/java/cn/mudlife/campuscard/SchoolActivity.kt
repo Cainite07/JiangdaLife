@@ -96,7 +96,7 @@ class SchoolActivity : ComponentActivity() {
         fen = intent.getLongExtra("fen", 0)
         if (fen <= 0 && session.pendingCheckout.isNotBlank()) fen = session.pendingFen
         if (cardLogin) recovery = CardLoginRecovery(state?.getBoolean("cardAutomaticRecovery") == true)
-        account = intent.getStringExtra("account").orEmpty()
+        account = state?.getString("paymentAccount") ?: intent.getStringExtra("account") ?: session.paymentAccount
         target = intent.getStringExtra("target").orEmpty()
         creationStarted = state?.getBoolean("creationStarted") ?: false
         payStarted = state?.getBoolean("payStarted") ?: false
@@ -147,6 +147,8 @@ class SchoolActivity : ComponentActivity() {
         } }
         if (!payment) browser.loadUrl(loginUrl())
         else when {
+            account.isBlank() || account != session.paymentAccount -> fail("请返回卡包，重新确认付款账户")
+            session.pendingCheckout.isNotBlank() && !session.ownsPendingPayment -> fail("无法确认原订单所属校园卡，请先核对学校流水")
             paymentConfirmed -> { stage = PaymentPolicy.message(PaymentState.PAID); handedToWechat = true }
             electric && session.pendingKind == "electric" && session.pendingOrderId.isNotBlank() -> { creationStarted = true; prepareElectric() }
             Navigation.checkout(session.pendingCheckout) -> { creationStarted = true; browser.loadUrl(session.pendingCheckout) }
@@ -196,7 +198,9 @@ class SchoolActivity : ComponentActivity() {
                     updateLoginPhase(uri)
                 }
                 if (uri.host in setOf("ykt.ujs.edu.cn", "ecardpay.ujs.edu.cn")) referer = "https://${uri.host}/"
-                if (payment && Navigation.checkout(url)) { session.pendingCheckout = url!!; session.pendingOrderId = Navigation.checkoutReference(url)?.orderId.orEmpty(); creationStarted = true; checks = 0 }
+                if (payment && creationStarted && account == session.paymentAccount && Navigation.checkout(url)) {
+                    session.recordPaymentRoute(url!!, Navigation.checkoutReference(url)?.orderId.orEmpty()); checks = 0
+                }
                 handler.removeCallbacksAndMessages(null)
             }
             override fun onPageFinished(view: WebView, url: String?) {
@@ -424,7 +428,8 @@ class SchoolActivity : ComponentActivity() {
                 "wait", "not_ready" -> handler.postDelayed(::submitWhenReady, 500)
                 "ready" -> {
                     // Reserve before calling the official function. Rotation/process death cannot replay it.
-                    creationStarted = true; session.pendingKind = "card"; session.pendingOrderId = ""; session.pendingFen = fen; session.pendingCheckout = "creating"
+                    if (!session.beginPayment(account, "card", fen)) { fail("无法保存当前账户的订单，请先核对已有订单"); return@evaluateJavascript }
+                    creationStarted = true
                     stage = "正在创建学校充值订单，请勿重复操作…"
                     browser.evaluateJavascript("(()=>{const q=[document.querySelector('#app')?.__vue__];while(q.length){const v=q.shift();if(!v)continue;if(typeof v.confirm==='function'&&v.amountOptions){if(v.btnLoad)return false;v.confirm();return true}q.push(...(v.${'$'}children||[]))}return false})()", null)
                 }
@@ -476,11 +481,12 @@ class SchoolActivity : ComponentActivity() {
             if (failure || handedToWechat || !active || isFinishing || isDestroyed || payStarted) return@evaluateJavascript
             val r = runCatching { JSONObject(raw) }.getOrNull()
             val id = r?.optString("id").orEmpty()
-            if (id.isNotBlank() && id.matches(Regex("[A-Za-z0-9_-]{1,200}"))) { session.pendingOrderId = id; session.pendingKind = "electric"; session.pendingCheckout = "electric" }
+            if (id.isNotBlank() && id.matches(Regex("[A-Za-z0-9_-]{1,200}"))) { session.recordPaymentRoute("electric", id) }
             when (r?.optString("state")) {
                 "wait" -> handler.postDelayed(::electricTick, 500)
                 "ready" -> {
-                    creationStarted = true; session.pendingKind = "electric"; session.pendingOrderId = ""; session.pendingFen = fen; session.pendingCheckout = "creating"
+                    if (!session.beginPayment(account, "electric", fen)) { fail("无法保存当前账户的订单，请先核对已有订单"); return@evaluateJavascript }
+                    creationStarted = true
                     stage = "正在创建电费订单，请勿重复操作…"
                     browser.evaluateJavascript("(()=>{const q=[document.querySelector('#app')?.__vue__];while(q.length){const v=q.shift();if(!v)continue;if(typeof v.placeOrder==='function'&&v.batteryParams){if(v.isBtnLoading)return false;v.isNotice=true;v.placeOrder();return true}q.push(...(v.${'$'}children||[]))}return false})()", null)
                     handler.postDelayed(::electricTick, 500)
@@ -522,7 +528,8 @@ class SchoolActivity : ComponentActivity() {
     }
 
     private fun openWechat(url: String) {
-        if (handedToWechat || !active || !Navigation.wechat(url)) return
+        if (failure || !payStarted || !session.ownsPendingPayment || account != session.paymentAccount ||
+            handedToWechat || !active || !Navigation.wechat(url)) return
         try {
             startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).setPackage("com.tencent.mm").addCategory(Intent.CATEGORY_BROWSABLE))
             handedToWechat = true; stage = "请在微信完成支付，返回后会自动核对。"
@@ -560,6 +567,7 @@ class SchoolActivity : ComponentActivity() {
     }
     override fun onResume() {
         super.onResume(); active = true
+        if (payment && (account.isBlank() || account != session.paymentAccount)) { fail("付款账户已变化，请返回卡包"); return }
         if (payment && handedToWechat) { reconcilePayment(); return }
         if (::browser.isInitialized) {
             browser.onResume()
@@ -595,6 +603,7 @@ class SchoolActivity : ComponentActivity() {
     }
     override fun onSaveInstanceState(outState: Bundle) {
         if (cardLogin) outState.putBoolean("cardAutomaticRecovery", recovery.automaticAttempted)
+        if (payment) outState.putString("paymentAccount", account)
         outState.putBoolean("creationStarted", creationStarted)
         outState.putBoolean("payStarted", payStarted)
         outState.putBoolean("handedToWechat", handedToWechat)

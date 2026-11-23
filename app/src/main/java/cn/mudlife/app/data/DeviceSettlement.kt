@@ -23,7 +23,7 @@ internal suspend fun queryDeviceSettlement(orderNo: String, projectId: String?, 
             val amount = try {
                 val bills = NetworkModule.apiService.getBillListSafe(
                     month.toString(), projectId = projectId, accountId = accountId
-                ).data.orEmpty()
+                ).takeIf { it.success }?.data.orEmpty()
                 bills.asSequence().mapNotNull { it.consumeBillDTO }
                     .firstOrNull { it.orderNo == orderNo || it.orderId == orderNo }
                     ?.safeConsumeMoney?.toDoubleOrNull()

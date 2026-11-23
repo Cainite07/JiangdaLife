@@ -71,8 +71,6 @@
 -dontwarn okhttp3.**
 -dontwarn okio.**
 
-# ── MQTT Paho ──
--keep class org.eclipse.paho.** { *; }
 
 # ── Compose ──
 -dontwarn androidx.compose.**

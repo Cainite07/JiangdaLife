@@ -67,7 +67,6 @@ fun MainScreen(
     pageInsets: PaddingValues? = null
 ) {
     val context = LocalContext.current
-    val appContext = LocalContext.current.applicationContext
     val direction = LocalLayoutDirection.current
     val safeArea = pageInsets ?: PaddingValues(0.dp)
 
@@ -89,7 +88,7 @@ fun MainScreen(
 
     LaunchedEffect(viewModel, phone) {
         if (campusServices != null) viewModel.refreshWalletOnHomeEntry() else viewModel.refreshWallet()
-        viewModel.initManagers(appContext)
+        viewModel.initManagers()
     }
 
     val pullRefreshing = viewModel.isRefreshing
@@ -112,7 +111,6 @@ fun MainScreen(
                         emoji = viewModel.selectedDevice?.typeEmoji ?: "🚿",
                         statusText = viewModel.selectedDevice?.statusText ?: "正在沐浴中",
                         location = viewModel.selectedDevice?.locationOnly ?: "",
-                        remaining = viewModel.showerRemaining,
                         elapsedSec = viewModel.showerElapsedSec,
                         autoDisConSec = viewModel.autoDisConSec,
                         isStopping = viewModel.isStopping,
@@ -164,7 +162,7 @@ fun MainScreen(
                                     color = AppColors.TextPrimary)
                             }
                             viewModel.activeOrders.forEach { order ->
-                                item { ActiveOrderCard(order, viewModel, phone) }
+                                item { ActiveOrderCard(order, viewModel) }
                             }
                         }
 
@@ -178,7 +176,7 @@ fun MainScreen(
                                 Surface(color = AppColors.Card, shape = RoundedCornerShape(22.dp)) {
                                     Column(Modifier.padding(horizontal = 16.dp, vertical = 3.dp)) {
                                         viewModel.recentDevices.forEachIndexed { index, dev ->
-                                            key(dev.snCode) { RecentDrinkingDeviceCard(dev, viewModel, phone) }
+                                            key(dev.snCode) { RecentDrinkingDeviceCard(dev, viewModel) }
                                             if (index < viewModel.recentDevices.lastIndex) HorizontalDivider(color = AppColors.Border.copy(alpha = .5f))
                                         }
                                     }
@@ -208,7 +206,7 @@ fun MainScreen(
         val isActive = viewModel.selectedDevice?.snCode?.let { viewModel.isDeviceActive(it) } ?: false
         DeviceDetailDialog(viewModel.selectedDevice, isActive, viewModel.isOwner,
             onDismiss = { viewModel.showDeviceDetail = false },
-            onConfirm = { viewModel.startShower(phone) })
+            onConfirm = { viewModel.startShower(allowNewOrder = !isActive) })
     }
 
     // 开始使用中的加载提示（开阀确认需要几秒）
@@ -295,7 +293,7 @@ fun MainScreen(
 }
 
 @Composable
-private fun ActiveOrderCard(order: cn.mudlife.app.model.ActiveOrder, viewModel: MainViewModel, phone: String) {
+private fun ActiveOrderCard(order: cn.mudlife.app.model.ActiveOrder, viewModel: MainViewModel) {
     val context = LocalContext.current
     Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp),
         colors = CardDefaults.cardColors(containerColor = AppColors.ActiveBg),
@@ -322,9 +320,7 @@ private fun ActiveOrderCard(order: cn.mudlife.app.model.ActiveOrder, viewModel: 
             }
             Button(onClick = {
                 HapticHelper.click(context)
-                viewModel.lastDeviceSnCode = order.snCode
-                viewModel.lastDeviceMac = order.deviceMac
-                viewModel.startLastDevice(phone)
+                viewModel.viewActiveOrder(order)
             }, shape = RoundedCornerShape(16.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = AppColors.Warning)) { Text("查看", color = AppColors.OnAccent) }
         }
@@ -333,7 +329,7 @@ private fun ActiveOrderCard(order: cn.mudlife.app.model.ActiveOrder, viewModel: 
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun RecentDrinkingDeviceCard(device: cn.mudlife.app.model.RecentDevice, viewModel: MainViewModel, phone: String) {
+private fun RecentDrinkingDeviceCard(device: cn.mudlife.app.model.RecentDevice, viewModel: MainViewModel) {
     var remove by remember { mutableStateOf(false) }
     val color = if (device.isHot) AppColors.Hot else AppColors.Accent
     Row(Modifier.fillMaxWidth().combinedClickable(onClick = {}, onLongClick = { remove = true }).padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -345,7 +341,7 @@ private fun RecentDrinkingDeviceCard(device: cn.mudlife.app.model.RecentDevice, 
             val sn = if (device.snCode.contains(",")) device.snCode.substringAfterLast(",") else device.snCode.takeLast(8)
             Text("编号 $sn", fontSize = 12.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(top = 3.dp))
         }
-        OutlinedButton(onClick = { viewModel.startRecentDevice(device, phone) }, shape = RoundedCornerShape(24.dp),
+        OutlinedButton(onClick = { viewModel.startRecentDevice(device) }, shape = RoundedCornerShape(24.dp),
             border = BorderStroke(1.dp, AppColors.Border), contentPadding = PaddingValues(horizontal = 15.dp)) { Text("出水", fontSize = 13.sp) }
     }
     if (remove) AlertDialog(onDismissRequest = { remove = false }, title = { Text("移除常用设备？") },

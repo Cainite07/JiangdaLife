@@ -32,7 +32,6 @@ fun ShowerScreen(
     emoji: String,
     statusText: String,
     location: String,
-    remaining: String = "0.00",
     elapsedSec: Int,
     autoDisConSec: Int = 0,
     isStopping: Boolean = false,

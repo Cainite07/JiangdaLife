@@ -1,5 +1,9 @@
 package cn.mudlife.app.ui
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import android.content.Intent
 import android.widget.Toast
 import androidx.compose.foundation.background
@@ -42,6 +46,12 @@ enum class LogFilter(val label: String) {
 fun LogViewerDialog(onDismiss: () -> Unit) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+    val export = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
+        if (uri != null) coroutineScope.launch {
+            val saved = withContext(Dispatchers.IO) { AppLogger.exportLog(context, uri) }
+            Toast.makeText(context, if (saved) "日志已保存" else "导出失败", Toast.LENGTH_SHORT).show()
+        }
+    }
     var selectedFilter by remember { mutableStateOf(LogFilter.ALL) }
     var expandedLogId by remember { mutableStateOf<Long?>(null) }
     val listState = rememberLazyListState()
@@ -242,16 +252,8 @@ fun LogViewerDialog(onDismiss: () -> Unit) {
                             Text("📋 复制报错", fontSize = 12.sp, color = AppColors.TextPrimary)
                         }
 
-                        // 导出到手机下载目录
                         OutlinedButton(
-                            onClick = {
-                                val res = AppLogger.exportToDownload(context)
-                                if (res) {
-                                    Toast.makeText(context, "已导出至下载目录", Toast.LENGTH_LONG).show()
-                                } else {
-                                    Toast.makeText(context, "导出失败", Toast.LENGTH_SHORT).show()
-                                }
-                            },
+                            onClick = { export.launch("江大生活日志.txt") },
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(12.dp)
                         ) {

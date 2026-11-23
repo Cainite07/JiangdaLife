@@ -80,7 +80,7 @@
 
 ## 开发与反馈
 
-Kotlin 2.0.21 · Compose / Material 3 · Retrofit / OkHttp · MQTT · CameraX / ML Kit。构建和运行课表测试使用 Android SDK 36、JDK 21。
+Kotlin 2.0.21 · Compose / Material 3 · Retrofit / OkHttp · CameraX / ML Kit。构建和运行课表测试使用 Android SDK 36、JDK 21。
 
 ```bash
 ./gradlew testDebugUnitTest assembleDebug

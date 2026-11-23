@@ -550,7 +550,7 @@ internal class WeeklyTimetableView(
         textSize = size
         setTextColor(tint)
         includeFontPadding = false
-        breakStrategy = Layout.BREAK_STRATEGY_SIMPLE
+        breakStrategy = android.graphics.text.LineBreaker.BREAK_STRATEGY_SIMPLE
     }
     private fun dayName(n: Int): String = "周" + "一二三四五六日"[n - 1]
     private fun round(fill: Int, radius: Int) = GradientDrawable().apply { setColor(fill); cornerRadius = dp(radius).toFloat() }

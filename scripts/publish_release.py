@@ -83,10 +83,11 @@ class Api:
         assets = self.request(suffix + '?per_page=100')
         existing = next((a for a in assets if a.get('name') == path.name), None)
         if existing:
-            if self.platform == 'github' and existing.get('size') != path.stat().st_size:
+            if self.platform == 'github' and (existing.get('state') != 'uploaded' or
+                                              existing.get('size') != path.stat().st_size):
                 raise ValueError('Existing release asset differs: ' + path.name)
             digest = existing.get('digest')
-            if digest and digest != 'sha256:' + hashlib.sha256(path.read_bytes()).hexdigest():
+            if (self.platform == 'github' or digest) and digest != 'sha256:' + hashlib.sha256(path.read_bytes()).hexdigest():
                 raise ValueError('Existing release asset hash differs: ' + path.name)
             print(f'{self.platform}: keeping existing {path.name}', flush=True)
             return

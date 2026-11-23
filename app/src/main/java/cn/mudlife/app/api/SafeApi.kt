@@ -22,6 +22,8 @@ import retrofit2.Response
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
+internal class DeviceHttpException(val status: Int) : java.io.IOException("HTTP $status")
+
 private val gson = Gson()
 
 private suspend fun Call<ResponseBody>.awaitString(): String {
@@ -32,12 +34,17 @@ private suspend fun Call<ResponseBody>.awaitString(): String {
                 if (response.isSuccessful) {
                     val body = response.body()
                     if (body != null) {
-                        cont.resume(body.string())
+                        try {
+                            cont.resume(body.string())
+                        } catch (e: java.io.IOException) {
+                            cont.resumeWithException(e)
+                        }
                     } else {
                         cont.resumeWithException(Exception("Empty response body"))
                     }
                 } else {
-                    cont.resumeWithException(Exception("HTTP ${response.code()}: ${response.message()}"))
+                    response.errorBody()?.close()
+                    cont.resumeWithException(DeviceHttpException(response.code()))
                 }
             }
 
@@ -61,7 +68,7 @@ private suspend fun <T> parse(json: String, dataClass: Class<T>): BaseResponse<T
         } else null
         BaseResponse(success, data, errorCode, errorMessage, msg)
     } catch (e: Exception) {
-        BaseResponse(false, null, -1, "数据解析异常: ${e.message}", null)
+        BaseResponse(false, null, -1, "服务响应格式异常", null)
     }
 }
 
@@ -82,7 +89,7 @@ private suspend fun <T> parseList(json: String, elementClass: Class<T>): BaseRes
         } else null
         BaseResponse(success, data, errorCode, errorMessage, msg)
     } catch (e: Exception) {
-        BaseResponse(false, null, -1, "数据解析异常: ${e.message}", null)
+        BaseResponse(false, null, -1, "服务响应格式异常", null)
     }
 }
 

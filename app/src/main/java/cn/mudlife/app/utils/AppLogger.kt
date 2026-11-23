@@ -182,30 +182,12 @@ object AppLogger {
     }
 
 
-    fun exportToDownload(context: android.content.Context): Boolean {
-        val src = logFile ?: return false
-        if (!src.exists() || src.length() == 0L) return false
-        val timeStr = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.CHINA).format(java.util.Date())
-        val fileName = "江大生活日志_$timeStr.txt"
+    fun exportLog(context: Context, destination: Uri): Boolean {
+        val source = logFile?.takeIf { it.isFile && it.length() > 0 } ?: return false
         return try {
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-                val values = android.content.ContentValues().apply {
-                    put(android.provider.MediaStore.Downloads.DISPLAY_NAME, fileName)
-                    put(android.provider.MediaStore.Downloads.MIME_TYPE, "text/plain")
-                    put(android.provider.MediaStore.Downloads.RELATIVE_PATH, android.os.Environment.DIRECTORY_DOWNLOADS)
-                }
-                val uri = context.contentResolver.insert(
-                    android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: return false
-                context.contentResolver.openOutputStream(uri)?.use { out ->
-                    src.inputStream().use { it.copyTo(out) }
-                }
-                true
-            } else {
-                val dir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
-                if (!dir.exists()) dir.mkdirs()
-                src.copyTo(java.io.File(dir, fileName), overwrite = true)
-                true
-            }
+            val output = context.contentResolver.openOutputStream(destination, "wt") ?: return false
+            output.use { out -> source.inputStream().use { it.copyTo(out) } }
+            true
         } catch (e: Exception) {
             e("ExportLog", "导出日志失败", e)
             false

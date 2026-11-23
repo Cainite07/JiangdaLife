@@ -47,24 +47,32 @@ object PrefsHelper {
         val marker = "legacy_preferences_migrated"
         if (prefs.getBoolean(marker, false)) return
         val legacy = context.getSharedPreferences("linyu_prefs", Context.MODE_PRIVATE)
-        val old = if (legacy.all.isEmpty()) emptyMap() else openEncrypted(context, "linyu_prefs", key)?.all ?: legacy.all
-        val allowed = setOf("loginCode", "userId", "accountId", "projectId", "telephone",
+        val raw = legacy.all
+        val encryptedLegacy = raw.keys.any { it.startsWith("__androidx_security_crypto_encrypted_prefs_") }
+        val old = if (encryptedLegacy) openEncrypted(context, "linyu_prefs", key)?.all ?: return else raw
+        val lifeKeys = setOf("loginCode", "userId", "accountId", "projectId", "telephone",
             "userName", "studentNo", "schoolName", "lastDeviceName", "lastDeviceMac",
-            "lastDeviceSnCode", "lastDeviceEmoji", "recentDevices", "activeOrders", "projectAccounts",
-            "qzhqLoginCode", "qzhqPhone", "qzhqProjectId", "qzhqCustomCode", "touchFeedback")
+            "lastDeviceSnCode", "lastDeviceEmoji", "recentDevices", "activeOrders", "projectAccounts")
+        val bathKeys = setOf("qzhqLoginCode", "qzhqPhone", "qzhqProjectId", "qzhqCustomCode")
         val existing = prefs.all
+        fun lifeKey(name: String) = name in lifeKeys || name.startsWith("startedAt_") || name.startsWith("autoDiscon_")
+        // Each login has its own owner. Keep a newer group intact while recovering other groups.
+        val importLife = existing.keys.none(::lifeKey)
+        val legacyBathPhone = (old["qzhqPhone"] as? String)?.takeIf(String::isNotBlank)
+            ?: (old["telephone"] as? String)?.takeIf(String::isNotBlank)
+        val legacyBathLogin = !(old["qzhqLoginCode"] as? String).isNullOrBlank()
+        val importBath = existing.keys.none { it in bathKeys } && (!legacyBathLogin || legacyBathPhone != null)
         val editor = prefs.edit().putBoolean(marker, true)
-        if (existing.keys.none { it in allowed && it != "touchFeedback" }) {
-            for ((name, value) in old) {
-                if (name in existing) continue
-                if (name !in allowed && !name.startsWith("startedAt_") && !name.startsWith("autoDiscon_")) continue
-                when (value) {
-                    is String -> editor.putString(name, value)
-                    is Long -> editor.putLong(name, value)
-                    is Boolean -> editor.putBoolean(name, value)
-                }
+        for ((name, value) in old) {
+            if (name in existing) continue
+            if (name != "touchFeedback" && !(importLife && lifeKey(name)) && !(importBath && name in bathKeys)) continue
+            when (value) {
+                is String -> editor.putString(name, value)
+                is Long -> editor.putLong(name, value)
+                is Boolean -> editor.putBoolean(name, value)
             }
         }
+        if (importBath && legacyBathLogin) editor.putString("qzhqPhone", legacyBathPhone)
         if (editor.commit() && old.isNotEmpty()) context.deleteSharedPreferences("linyu_prefs")
     }
 
@@ -121,13 +129,44 @@ object PrefsHelper {
 
     fun saveAuth(lc: String, uid: String, aid: String, pid: String, phone: String, name: String?, sno: String? = null) {
         check(canStoreSessions) { "设备的安全存储不可用，请重启后重试" }
-        if (telephone.isNotBlank() && telephone != phone) clearLifeAccount()
-        loginCode = lc; userId = uid; accountId = aid; projectId = pid; telephone = phone; userName = name ?: ""
-        if (!sno.isNullOrEmpty()) studentNo = sno
+        if ((userId.isNotBlank() && userId != uid) || (telephone.isNotBlank() && telephone != phone)) {
+            clearLifeAccount()
+        }
+        val edit = prefs.edit().putString("loginCode", lc).putString("userId", uid)
+            .putString("accountId", aid).putString("projectId", pid).putString("telephone", phone)
+            .putString("userName", name.orEmpty())
+        if (!sno.isNullOrEmpty()) edit.putString("studentNo", sno)
+        val prefix = orderArchivePrefix(uid, phone)
+        if (prefix != null) {
+            for ((key, value) in prefs.all) {
+                if (!key.startsWith(prefix)) continue
+                val field = key.removePrefix(prefix)
+                when (value) {
+                    is String -> edit.putString(field, value)
+                    is Long -> edit.putLong(field, value)
+                }
+                edit.remove(key)
+            }
+        }
+        check(edit.commit())
     }
-    /** The merged app has independent school, logistics and device-wallet logins. */
+
+    private fun orderArchivePrefix(uid: String, phone: String): String? =
+        if (uid.isNotBlank() && phone.isNotBlank()) "savedDeviceOrders_${uid}_${phone}:" else null
+
+    /** Keep only unresolved orders for re-verification when the same device account returns. */
     fun clearLifeAccount() {
         val edit = prefs.edit()
+        val prefix = orderArchivePrefix(userId, telephone)
+        val orders = getActiveOrders()
+        if (prefix != null && orders.isNotEmpty()) {
+            edit.putString(prefix + "activeOrders", gson.toJson(orders))
+            for (order in orders) {
+                for (field in listOf("startedAt_${order.snCode}", autoDisconKey(order.snCode))) {
+                    if (prefs.contains(field)) edit.putLong(prefix + field, prefs.getLong(field, 0L))
+                }
+            }
+        }
         listOf("loginCode", "userId", "accountId", "projectId", "telephone", "userName", "studentNo", "schoolName",
             "lastDeviceName", "lastDeviceMac", "lastDeviceSnCode", "lastDeviceEmoji", "boundRoom", "recentDevices",
             "activeOrders", "projectAccounts", "useCode", "useCodeStatus", "useCodeLastConfirmedAt").forEach { edit.remove(it) }
@@ -261,8 +300,8 @@ object PrefsHelper {
         } catch (_: Exception) { mutableListOf() }
     }
 
-    fun saveActiveOrders(orders: List<ActiveOrder>) {
-        prefs.edit().putString("activeOrders", gson.toJson(orders)).commit()
+    fun saveActiveOrders(orders: List<ActiveOrder>): Boolean {
+        return prefs.edit().putString("activeOrders", gson.toJson(orders)).commit()
     }
 
     fun clearActiveOrders() = prefs.edit().remove("activeOrders").apply()

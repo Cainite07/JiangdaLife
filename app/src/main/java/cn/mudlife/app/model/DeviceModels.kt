@@ -18,8 +18,11 @@ data class DeviceInfo(
     val displayName: String get() = formatDeviceName(deviceName)
     val locationOnly: String get() = displayName
 
-    val isDrinkingWater: Boolean get() =
-        bigTypeId == 5 || deviceName.contains("饮水") || deviceName.contains("冷水") || (deviceName.contains("热水") && !deviceName.startsWith("热水器") && !deviceName.startsWith("热水表"))
+    val isDrinkingWater: Boolean get() {
+        val type = listOfNotNull(smallTypeName, bigTypeName, deviceName).joinToString(" ")
+        if (bathEquipment.containsMatchIn(type)) return false
+        return bigTypeId == 5 || drinkingEquipment.containsMatchIn(type)
+    }
 
     val typeEmoji: String get() = if (isDrinkingWater) "🚰" else "🚿"
 
@@ -38,6 +41,9 @@ data class DeviceInfo(
     val statusText: String get() = "正在出水中"
 
     companion object {
+        private val bathEquipment = Regex("热水器|热水表|洗浴|淋浴")
+        private val drinkingEquipment = Regex("饮水|直饮|冷水|开水")
+
         fun formatDeviceName(name: String): String {
             return name
                 .replace(Regex("^(直饮)?(开水|冷水|热水|温水)[- ]*"), "")

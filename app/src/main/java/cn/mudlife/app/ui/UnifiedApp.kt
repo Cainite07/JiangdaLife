@@ -162,7 +162,7 @@ fun UnifiedApp(life: MainViewModel, campus: CampusViewModel) {
         }
         onDispose { lifecycle.removeObserver(observer); campus.pause() }
     }
-    LaunchedEffect(loggedIn, phone) { if (loggedIn) life.initManagers(activity.applicationContext) }
+    LaunchedEffect(loggedIn, phone) { if (loggedIn) life.initManagers() }
     LaunchedEffect(campus.paymentNotice) { campus.paymentNotice?.let { snackbar.showSnackbar(it) } }
     // A restored task may still carry the old balance-detail route.
     val onCardPage = page == "card" || page == "balance"
@@ -408,11 +408,11 @@ fun UnifiedApp(life: MainViewModel, campus: CampusViewModel) {
     )
     if (pending) AlertDialog(onDismissRequest = { pending = false }, title = { Text("有待核对的充值") }, text = {
         Column {
-            Text("继续原订单，避免重复充值。")
-            TextButton(onClick = { tap(); campus.checkPendingPayment(); pending = false }) { Text("查询支付结果") }
+            Text(if (campus.session.ownsPendingPayment) "继续原订单，避免重复充值。" else "请切回原校园卡。旧版未记录所属卡的订单，请在学校流水核对后清除。")
+            TextButton(enabled = campus.session.ownsPendingPayment, onClick = { tap(); campus.checkPendingPayment(); pending = false }) { Text("查询支付结果") }
             TextButton(onClick = { tap(); campus.session.clearPending(); pending = false }) { Text("我已核对，清除本机记录") }
         }
-    }, confirmButton = { TextButton(onClick = { tap(); pending = false; school.launch(Intent(activity, SchoolActivity::class.java)
+    }, confirmButton = { TextButton(enabled = campus.session.ownsPendingPayment, onClick = { tap(); pending = false; school.launch(Intent(activity, SchoolActivity::class.java)
         .putExtra("mode", if (campus.session.pendingKind == "electric") "electric" else "payment")) }) { Text("继续原订单") } },
         dismissButton = { TextButton(onClick = { tap(); pending = false }) { Text("返回") } })
     if (logout.isNotEmpty()) AlertDialog(onDismissRequest = { logout = "" }, title = { Text("退出${when (logout) { "school" -> "学校"; "logistics" -> "后勤"; else -> "趣智校园" }}账号？") },

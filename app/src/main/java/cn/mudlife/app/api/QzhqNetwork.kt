@@ -72,7 +72,11 @@ object QzhqNetwork {
                     if (response.isSuccessful) {
                         val body = response.body()
                         if (body != null) {
-                            cont.resume(body.string())
+                            try {
+                                cont.resume(body.string())
+                            } catch (e: java.io.IOException) {
+                                cont.resumeWithException(e)
+                            }
                         } else {
                             cont.resumeWithException(Exception("响应内容为空"))
                         }
@@ -81,7 +85,7 @@ object QzhqNetwork {
                         cont.resume("""{"errorCode":401,"message":"登录失效，请重新登录"}""")
                     } else {
                         response.errorBody()?.close()
-                        cont.resumeWithException(Exception("HTTP ${response.code()}: ${response.message()}"))
+                        cont.resumeWithException(java.io.IOException("HTTP ${response.code()}"))
                     }
                 }
 
@@ -103,7 +107,7 @@ object QzhqNetwork {
             } else null
             QzhqResponse(errorCode, message, data)
         } catch (e: Exception) {
-            QzhqResponse(-1, "数据解析异常: ${e.message}", null)
+            QzhqResponse(-1, "服务响应格式异常", null)
         }
     }
 
@@ -123,7 +127,7 @@ object QzhqNetwork {
             QzhqResponse(errorCode, message, list)
         } catch (e: Exception) {
             cn.mudlife.app.utils.AppLogger.e("QzhqNet", "parseList 数据解析异常", e)
-            QzhqResponse(-1, "数据解析异常: ${e.message}", emptyList())
+            QzhqResponse(-1, "服务响应格式异常", emptyList())
         }
     }
 

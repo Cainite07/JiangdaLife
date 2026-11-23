@@ -42,6 +42,9 @@ jobs:
           printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/JiangdaLife-release.p12"
           echo "MUDLIFE_KEYSTORE_FILE=$RUNNER_TEMP/JiangdaLife-release.p12" >> "$GITHUB_ENV"
 
+      - name: Test release recovery offline
+        run: python3 -m unittest discover -s scripts -p test_publish_release.py
+
       - name: Run unit tests
         run: ./gradlew testDebugUnitTest --stacktrace
 

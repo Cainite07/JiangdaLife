@@ -14,9 +14,10 @@ object PaymentPolicy {
     }
 }
 class PendingPayment(val checkout: String, val orderId: String, val kind: String, val fen: Long) {
-    fun matches(session: SessionStore) = checkout == session.pendingCheckout && orderId == session.pendingOrderId && kind == session.pendingKind && fen == session.pendingFen
+    fun matches(session: SessionStore) = session.ownsPendingPayment && checkout == session.pendingCheckout && orderId == session.pendingOrderId && kind == session.pendingKind && fen == session.pendingFen
     companion object {
         fun capture(session: SessionStore): PendingPayment? {
+            if (!session.ownsPendingPayment) return null
             val checkout = session.pendingCheckout
             if (checkout.isBlank() || session.pendingFen <= 0) return null
             if (session.pendingKind == "electric") {

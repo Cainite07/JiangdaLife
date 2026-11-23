@@ -11,6 +11,7 @@ internal suspend fun monitorDeviceOrder(
     drinkingWater: Boolean,
     foreground: Boolean,
     immediate: Boolean,
+    expectedOrderNo: () -> String?,
     current: () -> Boolean,
     query: suspend () -> BaseResponse<OrderStatus>,
     onOrder: (String) -> Unit,
@@ -37,7 +38,7 @@ internal suspend fun monitorDeviceOrder(
         }
         if (!current()) return
 
-        val status = response?.let(::verifyOrder) ?: OrderVerification.UNKNOWN
+        val status = response?.let { verifyOrder(it, expectedOrderNo()) } ?: OrderVerification.UNKNOWN
         if (status == OrderVerification.ACTIVE) {
             response?.data?.orderNo?.takeIf(String::isNotBlank)?.let(onOrder)
         }

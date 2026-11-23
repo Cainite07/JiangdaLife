@@ -134,8 +134,6 @@ dependencies {
     implementation(libs.retrofit)
     implementation(libs.retrofit.gson)
     implementation(libs.okhttp)
-    implementation(libs.mqtt.paho)
-    implementation(libs.mqtt.android)
     implementation(libs.security.crypto)
 
     implementation("com.google.zxing:core:3.5.3")

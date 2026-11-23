@@ -37,7 +37,7 @@ data class OrderStatus(
     val orderNo: String? = null,
     val state: Int? = null,
     val snCode: String? = null,
-    val isOwner: Boolean = true
+    val isOwner: Boolean? = null
 )
 
 data class BillItem(

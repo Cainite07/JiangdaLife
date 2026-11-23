@@ -1,4 +1,7 @@
 <resources>
     <string name="app_name">Jiangda Life</string>
     <string name="app_version_footer">%1$s v%2$s · Campus life at Jiangsu University</string>
+    <string name="timetable_widget_name">Today’s timetable</string>
+    <string name="timetable_widget_description">Today’s classes, times and rooms</string>
+    <string name="timetable_widget_more">%1$d more</string>
 </resources>

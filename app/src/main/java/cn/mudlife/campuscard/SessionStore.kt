@@ -25,7 +25,7 @@ class SessionStore(context: Context) {
         synchronized(accountLock) {
             val edit = preferences.edit().putString("access_token", next)
             val changed = this.token != next
-            if (changed) edit.remove("timetable_owner")
+            if (changed) edit.remove("timetable_owner").putBoolean("payment_card_unverified", true)
             check(edit.commit())
             if (changed) notifyTimetableWidget()
         }
@@ -46,9 +46,9 @@ class SessionStore(context: Context) {
             val owner = verifiedCard?.takeIf { account.isNotBlank() && it.account == account }
                 ?.number?.trim()?.takeIf { it.isNotEmpty() && !it.equals("null", ignoreCase = true) }
             val previous = timetableOwner
-            if (selectedAccount != account || previous != owner) {
+            if (selectedAccount != account || previous != owner || preferences.getBoolean("payment_card_unverified", false)) {
                 check(preferences.edit().putString("selected_account", account)
-                    .putString("timetable_owner", owner).commit())
+                    .putString("timetable_owner", owner).putBoolean("payment_card_unverified", verifiedCard?.account != account).commit())
                 if (owner != previous) notifyTimetableWidget()
             }
             return true
@@ -59,12 +59,27 @@ class SessionStore(context: Context) {
         app.sendBroadcast(Intent("cn.mudlife.app.TIMETABLE_ACCOUNT_CHANGED")
             .setClassName(app, "cn.mudlife.app.timetable.TodayTimetableWidget"))
     }
-    var pendingCheckout: String
+    val paymentAccount: String get() = selectedAccount.takeIf {
+        hasSession && !preferences.getBoolean("payment_card_unverified", false)
+    }.orEmpty()
+    val ownsPendingPayment: Boolean get() = paymentAccount.isNotBlank() &&
+        preferences.getString("pending_account", null) == paymentAccount
+
+    fun beginPayment(account: String, kind: String, fen: Long): Boolean {
+        if (account.isBlank() || account != paymentAccount || pendingCheckout.isNotBlank()) return false
+        return preferences.edit().putString("pending_account", account).putString("pending_kind", kind)
+            .putLong("pending_fen", fen).putString("pending_order_id", "")
+            .putString("pending_checkout", "creating").commit()
+    }
+
+    fun recordPaymentRoute(checkout: String, orderId: String) {
+        if (ownsPendingPayment) check(preferences.edit().putString("pending_checkout", checkout)
+            .putString("pending_order_id", orderId).commit())
+    }
+    val pendingCheckout: String
         get() = preferences.getString("pending_checkout", "").orEmpty()
-        set(value) { check(preferences.edit().putString("pending_checkout", value).commit()) }
-    var pendingFen: Long
+    val pendingFen: Long
         get() = preferences.getLong("pending_fen", 0)
-        set(value) { check(preferences.edit().putLong("pending_fen", value).commit()) }
     var startupCode: Boolean
         get() = preferences.getBoolean("startup_code", false)
         set(value) { preferences.edit().putBoolean("startup_code", value).apply() }
@@ -77,13 +92,11 @@ class SessionStore(context: Context) {
     var electricFavorites: String
         get() = preferences.getString("electric_favorites_" + selectedAccount, "[]").orEmpty()
         set(value) { preferences.edit().putString("electric_favorites_" + selectedAccount, value).apply() }
-    var pendingKind: String
+    val pendingKind: String
         get() = preferences.getString("pending_kind", "card").orEmpty()
-        set(value) { check(preferences.edit().putString("pending_kind", value).commit()) }
-    var pendingOrderId: String
+    val pendingOrderId: String
         get() = preferences.getString("pending_order_id", "").orEmpty()
-        set(value) { check(preferences.edit().putString("pending_order_id", value).commit()) }
-    fun clearPending() { check(preferences.edit().remove("pending_checkout").remove("pending_fen").remove("pending_kind").remove("pending_order_id").commit()) }
+    fun clearPending() { check(preferences.edit().remove("pending_account").remove("pending_checkout").remove("pending_fen").remove("pending_kind").remove("pending_order_id").commit()) }
     fun clearSchoolAuthentication() {
         synchronized(accountLock) {
             check(BuildConfig.DEBUG && pendingCheckout.isBlank())

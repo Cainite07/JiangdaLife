@@ -3,6 +3,8 @@ package cn.mudlife.app.api
 import cn.mudlife.app.BuildConfig
 import cn.mudlife.app.utils.PrefsHelper
 import okhttp3.Interceptor
+import okhttp3.RequestBody
+import okio.BufferedSink
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
@@ -37,9 +39,7 @@ object NetworkModule {
         projectId = PrefsHelper.projectId
         telephone = PrefsHelper.telephone
         val savedAccounts = PrefsHelper.getProjectAccounts()
-        if (savedAccounts.isNotEmpty()) {
-            setProjectAccounts(savedAccounts)
-        }
+        setProjectAccounts(savedAccounts)
         return loginCode.isNotEmpty()
     }
 
@@ -50,6 +50,7 @@ object NetworkModule {
         projectId: String,
         telephone: String
     ) {
+        if (this.userId != userId || this.telephone != telephone) setProjectAccounts(emptyMap())
         this.loginCode = loginCode
         this.userId = userId
         this.accountId = accountId
@@ -84,7 +85,7 @@ object NetworkModule {
             "version" to ServiceCompatibility.DEVICE
         )
         // 核心修复：精准匹配目标项目下的专属 accountId（如饮水机 3255 匹配 38184，洗浴 4253 匹配 5816）
-        val targetAid = getAccountIdForProject(pid) ?: accountId
+        val targetAid = getAccountIdForProject(pid).orEmpty()
         if (targetAid.isNotEmpty()) {
             map["accountId"] = targetAid
         }
@@ -106,7 +107,7 @@ object NetworkModule {
             // 账户与账单接口按目标项目精准注入 accountId
             val reqProjectId = originalUrl.queryParameter("projectId")
             val targetAid = if (!reqProjectId.isNullOrBlank() && reqProjectId != "0" && reqProjectId != "null") {
-                getAccountIdForProject(reqProjectId) ?: accountId
+                getAccountIdForProject(reqProjectId).orEmpty()
             } else {
                 accountId
             }
@@ -118,12 +119,18 @@ object NetworkModule {
             }
 
             chain.proceed(originalRequest.newBuilder().url(urlBuilder.build()).build())
+        } else if (originalRequest.body != null) {
+            // OkHttp can follow a 503/Retry-After: 0 even when connection retries are disabled.
+            chain.proceed(originalRequest.newBuilder()
+                .method(originalRequest.method, SingleSendBody(originalRequest.body!!)).build())
         } else {
             chain.proceed(originalRequest)
         }
     }
 
     private val okHttpClient = OkHttpClient.Builder()
+        .retryOnConnectionFailure(false)
+        .followRedirects(false)
         .addInterceptor(authInterceptor)
         .addInterceptor { chain ->
             val req = chain.request()
@@ -163,4 +170,11 @@ object NetworkModule {
         .addConverterFactory(GsonConverterFactory.create())
         .build()
         .create(QzxyService::class.java)
+}
+
+internal class SingleSendBody(private val body: RequestBody) : RequestBody() {
+    override fun contentType() = body.contentType()
+    override fun contentLength() = body.contentLength()
+    override fun writeTo(sink: BufferedSink) = body.writeTo(sink)
+    override fun isOneShot() = true
 }

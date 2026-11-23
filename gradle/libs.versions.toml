@@ -16,11 +16,8 @@ securityCrypto = "1.1.0-alpha06"
 camera = "1.4.2"
 mlkitBarcode = "17.3.0"
 
-mqtt = "1.1.1"
 
 [libraries]
-mqtt-paho = { group = "org.eclipse.paho", name = "org.eclipse.paho.client.mqttv3", version = "1.2.5" }
-mqtt-android = { group = "org.eclipse.paho", name = "org.eclipse.paho.android.service", version.ref = "mqtt" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "junitVersion" }
