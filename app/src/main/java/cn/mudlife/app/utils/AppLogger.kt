@@ -6,7 +6,6 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
-import android.os.Environment
 import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -15,8 +14,6 @@ import androidx.core.content.FileProvider
 import cn.mudlife.app.BuildConfig
 import java.io.File
 import java.io.FileWriter
-import java.io.PrintWriter
-import java.io.StringWriter
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.LinkedList
@@ -58,19 +55,6 @@ object AppLogger {
 
     private val writeExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
 
-    private val REGEX_LOGIN_CODE_URL = Regex("loginCode=([^&]+)")
-    private val REGEX_LOGIN_CODE_JSON = Regex(""""loginCode"\s*:\s*"([^"]+)"""")
-    private val REGEX_TOKEN_URL = Regex("token=([^&]+)")
-    private val REGEX_TOKEN_JSON = Regex(""""token"\s*:\s*"([^"]+)"""")
-    private val REGEX_PHONE = Regex("(1[3-9]\\d)\\d{4}(\\d{4})")
-    private val REGEX_PASSWORD_URL = Regex("password=([^&]+)")
-    private val REGEX_PASSWORD_JSON = Regex(""""password"\s*:\s*"([^"]+)"""")
-    private val REGEX_USE_CODE_URL = Regex("useCode=([^&]+)")
-    private val REGEX_USE_CODE_JSON = Regex(""""(?:useCode|randomCode|customCode)"\s*:\s*"([^"]+)"""")
-    private val REGEX_SECRET_URL = Regex("secret=([^&]+)")
-    private val REGEX_SECRET_JSON = Regex(""""secret"\s*:\s*"([^"]+)"""")
-    private val REGEX_VERIFY_CODE = Regex(""""(?:verificationCode|verifyCode|code)"\s*:\s*"([^"]+)"""")
-
     private val logList = LinkedList<LogEntry>()
     private var nextId = 1L
     private var appContext: Context? = null
@@ -86,7 +70,9 @@ object AppLogger {
     fun init(context: Context) {
         if (appContext != null) return
         appContext = context.applicationContext
-        logFile = File(context.filesDir, "mudlife_debug.log")
+        File(context.filesDir, "mudlife_debug.log").delete()
+        val directory = File(context.filesDir, "diagnostics").apply { mkdirs() }
+        logFile = File(directory, "journal.log")
 
         // 记录启动与环境信息
         val deviceInfo = "App v${BuildConfig.VERSION_NAME} (Build ${BuildConfig.VERSION_CODE}) | " +
@@ -97,7 +83,7 @@ object AppLogger {
         val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             try {
-                e("UncaughtCrash", "线程 [${thread.name}] 发生未捕获异常崩溃", throwable)
+                e("UncaughtCrash", "应用发生未捕获异常", throwable)
             } catch (_: Exception) {}
             defaultHandler?.uncaughtException(thread, throwable)
         }
@@ -109,23 +95,15 @@ object AppLogger {
     fun w(tag: String, msg: String) = log(LogLevel.WARN, tag, msg)
     fun e(tag: String, msg: String, tr: Throwable? = null) = log(LogLevel.ERROR, tag, msg, tr)
 
-    fun net(method: String, url: String, code: Int? = null, bodySnippet: String? = null) {
-        val maskedUrl = maskSensitive(url)
-        val sb = StringBuilder("[$method] $maskedUrl")
-        if (code != null) sb.append(" -> $code")
-        if (!bodySnippet.isNullOrBlank()) {
-            sb.append("\n  Body: ").append(maskSensitive(bodySnippet.take(500)))
-        }
-        log(LogLevel.NET, "HTTP", sb.toString())
+    fun net(service: String, code: Int?, elapsedMs: Long) {
+        val result = code?.let { "HTTP $it" } ?: "连接失败"
+        log(LogLevel.NET, service, "$result · ${elapsedMs}ms")
     }
 
     @Synchronized
-    private fun log(level: LogLevel, tag: String, message: String, tr: Throwable? = null) {
-        val maskedMsg = maskSensitive(message)
-        val stackTrace = tr?.let {
-            val sw = StringWriter()
-            it.printStackTrace(PrintWriter(sw))
-            maskSensitive(sw.toString())
+    private fun log(level: LogLevel, tag: String, maskedMsg: String, tr: Throwable? = null) {
+        val stackTrace = tr?.let { error ->
+            (listOf(error.javaClass.name) + error.stackTrace.take(12).map { "at $it" }).joinToString("\n")
         }
 
         // 核心降噪：相邻相同日志就地折叠计数，不浪费 1000 条内存槽位与磁盘 I/O
@@ -151,7 +129,7 @@ object AppLogger {
             LogLevel.INFO -> Log.i(TAG, "[$tag] $maskedMsg")
             LogLevel.DEBUG -> Log.d(TAG, "[$tag] $maskedMsg")
             LogLevel.WARN -> Log.w(TAG, "[$tag] $maskedMsg")
-            LogLevel.ERROR -> Log.e(TAG, "[$tag] $maskedMsg", tr)
+            LogLevel.ERROR -> Log.e(TAG, "[$tag] $maskedMsg" + (stackTrace?.let { "\n$it" } ?: ""))
             LogLevel.NET -> Log.i(TAG, "[$tag] $maskedMsg")
         }
 
@@ -181,9 +159,7 @@ object AppLogger {
     fun clear() {
         logList.clear()
         errorCountState = 0
-        try {
-            logFile?.writeText("")
-        } catch (_: Exception) {}
+        writeExecutor.execute { runCatching { logFile?.writeText("") } }
         versionState = ++nextId
     }
 
@@ -205,10 +181,9 @@ object AppLogger {
         } catch (_: Exception) {}
     }
 
-    private fun getLogFile(context: android.content.Context) = logFile ?: File(context.filesDir, "mudlife_debug.log")
 
     fun exportToDownload(context: android.content.Context): Boolean {
-        val src = getLogFile(context) ?: return false
+        val src = logFile ?: return false
         if (!src.exists() || src.length() == 0L) return false
         val timeStr = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.CHINA).format(java.util.Date())
         val fileName = "江大生活日志_$timeStr.txt"
@@ -239,7 +214,7 @@ object AppLogger {
 
     /** 创建系统分享 Intent，直接投递给微信、QQ 或其他应用 */
     fun createShareIntent(context: Context): Intent {
-        val file = logFile ?: File(context.filesDir, "mudlife_debug.log")
+        val file = checkNotNull(logFile)
         if (!file.exists()) {
             file.writeText("[${SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())}] 日志为空\n")
         }
@@ -290,22 +265,5 @@ object AppLogger {
         val clip = ClipData.newPlainText("Jiangda Life Error Log", text)
         cm.setPrimaryClip(clip)
         return text
-    }
-
-    private fun maskSensitive(text: String): String {
-        var res = text
-        res = REGEX_LOGIN_CODE_URL.replace(res) { "loginCode=***" }
-        res = REGEX_LOGIN_CODE_JSON.replace(res) { "\"loginCode\":\"***\"" }
-        res = REGEX_TOKEN_URL.replace(res) { "token=***" }
-        res = REGEX_TOKEN_JSON.replace(res) { "\"token\":\"***\"" }
-        res = REGEX_PHONE.replace(res) { "${it.groupValues[1]}****${it.groupValues[2]}" }
-        res = REGEX_PASSWORD_URL.replace(res) { "password=******" }
-        res = REGEX_PASSWORD_JSON.replace(res) { "\"password\":\"******\"" }
-        res = REGEX_USE_CODE_URL.replace(res) { "useCode=***" }
-        res = REGEX_USE_CODE_JSON.replace(res) { "\"code\":\"***\"" }
-        res = REGEX_SECRET_URL.replace(res) { "secret=***" }
-        res = REGEX_SECRET_JSON.replace(res) { "\"secret\":\"***\"" }
-        res = REGEX_VERIFY_CODE.replace(res) { "\"code\":\"***\"" }
-        return res
     }
 }

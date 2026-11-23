@@ -133,7 +133,7 @@ dependencies {
     // Network
     implementation(libs.retrofit)
     implementation(libs.retrofit.gson)
-    implementation(libs.okhttp.logging)
+    implementation(libs.okhttp)
     implementation(libs.mqtt.paho)
     implementation(libs.mqtt.android)
     implementation(libs.security.crypto)

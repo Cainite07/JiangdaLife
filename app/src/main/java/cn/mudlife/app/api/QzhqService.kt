@@ -23,14 +23,14 @@ interface QzhqService {
         @Field("password") passwordHash: String,
         @Field("typeId") typeId: Int = 0,
         @Field("phoneSystem") phoneSystem: String = "WeChat",
-        @Field("version") version: String = "5.0.0"
+        @Field("version") version: String = ServiceCompatibility.LOGISTICS
     ): Call<ResponseBody>
 
     @GET("/combination/user/group/project/list")
     fun getProjectGroup(
         @Query("projectId") projectId: String,
         @Query("phoneSystem") phoneSystem: String = "WeChat",
-        @Query("version") version: String = "5.0.0"
+        @Query("version") version: String = ServiceCompatibility.LOGISTICS
     ): Call<ResponseBody>
 
     /**
@@ -42,7 +42,7 @@ interface QzhqService {
         @Query("projectId") projectId: String = PROJECT_ID,
         @Query("loginCode") loginCode: String,
         @Query("phoneSystem") phoneSystem: String = "WeChat",
-        @Query("version") version: String = "5.0.0"
+        @Query("version") version: String = ServiceCompatibility.LOGISTICS
     ): Call<ResponseBody>
 
     /**
@@ -56,7 +56,7 @@ interface QzhqService {
         @Field("projectId") projectId: String = PROJECT_ID,
         @Field("loginCode") loginCode: String,
         @Field("phoneSystem") phoneSystem: String = "WeChat",
-        @Field("version") version: String = "5.0.0"
+        @Field("version") version: String = ServiceCompatibility.LOGISTICS
     ): Call<ResponseBody>
 
     /**
@@ -70,7 +70,7 @@ interface QzhqService {
         @Field("projectId") projectId: String = PROJECT_ID,
         @Field("loginCode") loginCode: String,
         @Field("phoneSystem") phoneSystem: String = "WeChat",
-        @Field("version") version: String = "5.0.0"
+        @Field("version") version: String = ServiceCompatibility.LOGISTICS
     ): Call<ResponseBody>
 
     /**
@@ -92,7 +92,7 @@ interface QzhqService {
         @Field("phone") phone: String,
         @Field("msg") msg: String,
         @Field("phoneSystem") phoneSystem: String = "WeChat",
-        @Field("version") version: String = "5.0.0"
+        @Field("version") version: String = ServiceCompatibility.LOGISTICS
     ): Call<ResponseBody>
 
     /**
@@ -109,7 +109,7 @@ interface QzhqService {
         @Query("projectId") projectId: String = PROJECT_ID,
         @Query("loginCode") loginCode: String,
         @Query("phoneSystem") phoneSystem: String = "WeChat",
-        @Query("version") version: String = "5.0.0"
+        @Query("version") version: String = ServiceCompatibility.LOGISTICS
     ): Call<ResponseBody>
 
     companion object {

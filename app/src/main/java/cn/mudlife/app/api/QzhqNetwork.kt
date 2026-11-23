@@ -42,25 +42,19 @@ object QzhqNetwork {
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(10, TimeUnit.SECONDS)
         .addInterceptor { chain ->
-            val req = chain.request()
-            val resp = try {
-                chain.proceed(req)
-            } catch (e: Exception) {
-                cn.mudlife.app.utils.AppLogger.e("QzhqNet", "后勤网络请求失败: ${req.method} ${req.url}", e)
+            val started = android.os.SystemClock.elapsedRealtime()
+            try {
+                chain.proceed(chain.request()).also { response ->
+                    if (!response.isSuccessful) cn.mudlife.app.utils.AppLogger.net(
+                        "后勤服务", response.code, android.os.SystemClock.elapsedRealtime() - started
+                    )
+                }
+            } catch (e: java.io.IOException) {
+                if (!chain.call().isCanceled()) cn.mudlife.app.utils.AppLogger.net(
+                    "后勤服务", null, android.os.SystemClock.elapsedRealtime() - started
+                )
                 throw e
             }
-            try {
-                val isFailed = !resp.isSuccessful
-                val body = resp.peekBody(1024 * 64).string()
-                val isBizFail = body.contains("\"errorCode\":") && !body.contains("\"errorCode\":0")
-                val isEmptyData = req.method == "GET" && (body.contains("\"data\":[]") || body.contains("\"data\": null") || body.contains("\"data\":null"))
-
-                // 过滤无业务变动的空数据响应
-                if (!isEmptyData || isFailed || isBizFail) {
-                    cn.mudlife.app.utils.AppLogger.net(req.method, req.url.toString(), resp.code, body)
-                }
-            } catch (_: Exception) {}
-            resp
         }
         .build()
 
@@ -128,7 +122,7 @@ object QzhqNetwork {
             }
             QzhqResponse(errorCode, message, list)
         } catch (e: Exception) {
-            cn.mudlife.app.utils.AppLogger.e("QzhqNet", "parseList 数据解析异常: ${e.message}", e)
+            cn.mudlife.app.utils.AppLogger.e("QzhqNet", "parseList 数据解析异常", e)
             QzhqResponse(-1, "数据解析异常: ${e.message}", emptyList())
         }
     }
@@ -152,6 +146,7 @@ object QzhqNetwork {
     }
 
     private suspend fun saveLogin(json: String, phone: String): QzhqResponse<QzhqLoginData> {
+        check(PrefsHelper.canStoreSessions) { "设备的安全存储不可用，请重启后重试" }
         val resp = parse(json, QzhqLoginData::class.java)
         if (resp.isSuccess) {
             val token = resp.data?.loginCode?.takeIf { it.isNotBlank() }

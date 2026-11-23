@@ -91,7 +91,7 @@ suspend fun QzxyService.loginSafe(
     password: String,
     phoneSystem: String = "android",
     type: Int = 0,
-    version: String = "6.5.24"
+    version: String = ServiceCompatibility.DEVICE
 ): BaseResponse<LoginData> = parse(login(telephone, password, phoneSystem, type, version).awaitString(), LoginData::class.java)
 
 suspend fun QzxyService.getWalletSafe(): BaseResponse<WalletData> =

@@ -18,7 +18,7 @@ interface QzxyService {
         @Field("password") password: String,
         @Field("phoneSystem") phoneSystem: String = "android",
         @Field("type") type: Int = 0,
-        @Field("version") version: String = "6.5.24"
+        @Field("version") version: String = ServiceCompatibility.DEVICE
     ): Call<ResponseBody>
 
     @GET("/account/wallet")
@@ -132,7 +132,7 @@ interface QzxyService {
         @Field("smsCode") smsCode: String,
         @Field("type") type: Int = 5,
         @Field("phoneSystem") phoneSystem: String = "android",
-        @Field("version") version: String = "6.5.28"
+        @Field("version") version: String = ServiceCompatibility.DEVICE_SMS_LOGIN
     ): Call<ResponseBody>
 
     companion object {

@@ -122,6 +122,7 @@ class RestoredOrderStateTest {
             PrefsHelper.setStartedAt(cached.snCode, System.currentTimeMillis())
             val model = MainViewModel { BaseResponse(true, null) }
             model.activeOrders.add(cached)
+            model.showerSnCode = cached.snCode
             model.isShowering = true
             // Settlement is deliberately cancelled; synchronous stop cleanup must still happen.
             model.viewModelScope.cancel()

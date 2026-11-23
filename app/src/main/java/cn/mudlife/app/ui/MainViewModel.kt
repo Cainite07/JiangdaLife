@@ -13,7 +13,6 @@ import cn.mudlife.app.api.closeOrderSafe
 import cn.mudlife.app.api.closeOrderResultSafe
 import cn.mudlife.app.api.downRateSafe
 import cn.mudlife.app.api.downRateResultSafe
-import cn.mudlife.app.api.getBillListSafe
 import cn.mudlife.app.api.getUserProjectsSafe
 import cn.mudlife.app.api.getDeviceInfoSafe
 import cn.mudlife.app.api.QzhqNetwork
@@ -31,6 +30,10 @@ import cn.mudlife.app.model.UseCodeData
 import cn.mudlife.app.model.DeviceInfo
 import cn.mudlife.app.model.MqttOrderMsg
 import cn.mudlife.app.model.WalletData
+import cn.mudlife.app.model.OrderVerification
+import cn.mudlife.app.data.monitorDeviceOrder
+import cn.mudlife.app.data.queryDeviceSettlement
+import cn.mudlife.app.model.verifyOrder
 import cn.mudlife.app.utils.MqttManager
 import cn.mudlife.app.utils.PrefsHelper
 import com.google.gson.Gson
@@ -40,7 +43,6 @@ import kotlinx.coroutines.joinAll
 import cn.mudlife.app.utils.AccountRequests
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.CancellationException
 import kotlin.math.abs
 
@@ -72,7 +74,7 @@ class MainViewModel(
     var showAutoCloseDialog by mutableStateOf(false)
     var autoCloseDeviceName by mutableStateOf("")
     var autoCloseElapsed by mutableStateOf(0)
-    var autoCloseConsumed by mutableStateOf(0.0)
+    var autoCloseConsumed by mutableStateOf<Double?>(null)
     var autoCloseLoading by mutableStateOf(false)
 
     var toastMessage by mutableStateOf<String?>(null)
@@ -107,7 +109,22 @@ class MainViewModel(
     private val gson = Gson()
     private var mqttManager: MqttManager? = null
     private var timerJob: Job? = null
-    private var orderPollJob: Job? = null
+    private var startDeviceJob: Job? = null
+    private var stopDeviceJob: Job? = null
+    private var settlementJob: Job? = null
+    private var deviceSessionGeneration = 0
+    private var deviceForeground = true
+    private var sessionDevice: DeviceInfo? = null
+
+    fun setDeviceForeground(foreground: Boolean) {
+        if (deviceForeground == foreground) return
+        deviceForeground = foreground
+        val snCode = showerSnCode ?: return
+        val device = sessionDevice ?: return
+        if (isShowering && !isStopping && !showAutoCloseDialog) {
+            monitorDevice(snCode, device, immediate = foreground)
+        }
+    }
     private var probeJob: Job? = null
 
     var useCodeData by mutableStateOf<UseCodeData?>(
@@ -194,8 +211,9 @@ class MainViewModel(
                     // Ignore results from a previous login or an order replaced while awaiting HTTP.
                     if (generation != accountGeneration) return@launch
                     if (order !in activeOrders && order !in unverifiedOrders) return@forEach
+                    if (isStartingShower && showerSnCode == order.snCode) return@forEach
                     when (cn.mudlife.app.model.verifyOrder(q)) {
-                        cn.mudlife.app.model.OrderVerification.ACTIVE -> {
+                        OrderVerification.ACTIVE -> {
                             unverifiedOrders.remove(order)
                             if (activeOrders.none { it.snCode == order.snCode }) {
                                 activeOrders.add(order.copy(orderNo = q.data?.orderNo ?: order.orderNo))
@@ -203,8 +221,8 @@ class MainViewModel(
                             activeDeviceSnCodes.add(order.snCode)
                             saveOrders()
                         }
-                        cn.mudlife.app.model.OrderVerification.ENDED -> clearActiveRecord(order.snCode)
-                        cn.mudlife.app.model.OrderVerification.UNKNOWN -> Unit
+                        OrderVerification.ENDED -> clearActiveRecord(order.snCode)
+                        OrderVerification.UNKNOWN -> Unit
                     }
                 } catch (cancelled: kotlinx.coroutines.CancellationException) {
                     throw cancelled
@@ -219,7 +237,7 @@ class MainViewModel(
     override fun onCleared() {
         super.onCleared()
         orderVerificationJob?.cancel()
-        timerJob?.cancel(); orderPollJob?.cancel(); probeJob?.cancel(); probeJob?.cancel()
+        timerJob?.cancel(); probeJob?.cancel()
         mqttManager?.disconnect()
     }
 
@@ -312,6 +330,7 @@ class MainViewModel(
     }
 
     fun startLastDevice(phone: String) {
+        if (isStartingShower || isShowering || isStopping) return
         val sn = lastDeviceSnCode.ifEmpty { return }
         // 找对应的活跃订单
         val order = activeOrders.find { it.snCode == sn }
@@ -346,6 +365,7 @@ class MainViewModel(
     }
 
     fun startRecentDevice(dev: cn.mudlife.app.model.RecentDevice, phone: String) {
+        if (isStartingShower || isShowering || isStopping) return
         lastDeviceSnCode = dev.snCode
         lastDeviceMac = dev.mac
         lastDeviceName = dev.name
@@ -381,6 +401,7 @@ class MainViewModel(
 
     // ════════════════════════════════════════════
     fun startShower(phone: String) {
+        if (kickedOut || isStartingShower || isShowering || isStopping) return
         val device = selectedDevice ?: return
         val snCode = device.snCode
         if (snCode.isNullOrBlank()) {
@@ -390,7 +411,9 @@ class MainViewModel(
         }
 
         isStartingShower = true
-        viewModelScope.launch {
+        val session = ++deviceSessionGeneration
+        settlementJob?.cancel()
+        startDeviceJob = viewModelScope.launch {
             try {
                 showerError = null
                 showerSnCode = snCode
@@ -403,32 +426,53 @@ class MainViewModel(
                             val map = pResp.data.associate { it.projectId.toString() to it.accountId.toString() }
                             NetworkModule.setProjectAccounts(map)
                             PrefsHelper.saveProjectAccounts(map)
-                            cn.mudlife.app.utils.AppLogger.i("Shower", "开阀前补全多项目账户映射: $map")
+                            cn.mudlife.app.utils.AppLogger.i("Shower", "开阀前补全多项目账户映射")
                         }
-                    } catch (_: Exception) {}
+                    } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) {}
                 }
                 val devAuth = NetworkModule.authFields(overrideProjectId = devPid)
 
                 val existing = NetworkModule.apiService.queryUsingSafe(snCode = snCode, auth = devAuth)
-                if (existing.errorCode == 307 || (existing.success && existing.data?.orderNo != null)) {
-                    val oNo = existing.data?.orderNo ?: ""
+                if (existing.data?.isOwner == false) {
+                    toastMessage = "该设备正在使用中"
+                    return@launch
+                }
+                if (verifyOrder(existing) == OrderVerification.UNKNOWN) {
+                    toastMessage = existing.displayMessage ?: "暂时无法确认设备状态，请重试"
+                    checkKick(existing.displayMessage)
+                    return@launch
+                }
+                if (verifyOrder(existing) == OrderVerification.ACTIVE) {
+                    val oNo = existing.data?.orderNo?.takeIf(String::isNotBlank)
+                    unverifiedOrders.removeAll { it.snCode == snCode }
                     if (activeOrders.none { it.snCode == snCode }) {
-                        activeOrders.add(ActiveOrder(snCode, oNo, device.displayName, device.macAddress, device.typeEmoji, device.withholdMoney, projectId = devPid))
-                        saveOrders()
+                        activeOrders.add(ActiveOrder(snCode, oNo.orEmpty(), device.displayName, device.macAddress, device.typeEmoji, device.withholdMoney, projectId = devPid))
                     }
+                    saveOrders()
                     // 恢复订单：从持久化恢复自动关停剩余时间
                     val remain = PrefsHelper.getAutoDisconRemain(snCode)
                     enterShowerState(oNo, snCode, device, remain)
                     return@launch
                 }
 
+                val pending = ActiveOrder(snCode, "", device.displayName, device.macAddress,
+                    device.typeEmoji, device.withholdMoney, projectId = devPid)
+                PrefsHelper.setStartedAt(snCode, System.currentTimeMillis())
+                PrefsHelper.clearAutoDiscon(snCode)
+                unverifiedOrders.removeAll { it.snCode == snCode }
+                unverifiedOrders.add(pending)
+                saveOrders()
                 mqttManager?.connect(phone)
                 val resp = NetworkModule.apiService.downRateSafe(snCode = snCode, auth = devAuth)
                 if (!resp.success) {
+                    if (resp.errorCode > 0 && resp.errorCode != 307 && unverifiedOrders.remove(pending)) {
+                        PrefsHelper.setStartedAt(snCode, 0L)
+                        saveOrders()
+                    }
                     val msg = resp.displayMessage ?: "开始失败"
                     showerError = msg
                     toastMessage = "出水失败: $msg"
-                    cn.mudlife.app.utils.AppLogger.e("Shower", "出水失败: $msg | 设备: ${device.displayName}, sn: $snCode, projectId: $devPid, accountId: ${devAuth["accountId"]}")
+                    cn.mudlife.app.utils.AppLogger.e("Shower", "服务未接受开阀请求")
                     checkKick(resp.displayMessage); mqttManager?.disconnect(); return@launch
                 }
 
@@ -448,54 +492,26 @@ class MainViewModel(
                             }
                             break
                         }
-                    } catch (_: Exception) {}
+                    } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) {}
                 }
 
                 if (!opened) {
                     // 开阀确认失败，退出并提示
                     showerError = "开阀未确认成功，请确认设备是否已开启"
                     toastMessage = "开阀未确认，请检查水机或网络重试"
-                    cn.mudlife.app.utils.AppLogger.e("Shower", "开阀确认失败: 9次轮询未返回开启状态 | 设备: ${device.displayName}, sn: $snCode, devPid: $devPid")
+                    cn.mudlife.app.utils.AppLogger.e("Shower", "开阀确认失败")
                     mqttManager?.disconnect()
                     return@launch
                 }
 
-                // 记录开阀时间戳（无条件重置为当前开阀时间，秒数清零）
-                val now = System.currentTimeMillis()
-                PrefsHelper.setStartedAt(snCode, now)
-                showerElapsedSec = 0
-
-                val wType = if (snCode.contains(",G,") || device.displayName.contains("冷")) "冷水"
-                            else if (snCode.contains(",M,") || device.displayName.contains("热")) "热水"
-                            else "直饮水"
-                PrefsHelper.addRecentDevice(cn.mudlife.app.model.RecentDevice(
-                    name = device.displayName,
-                    mac = device.macAddress,
-                    snCode = device.snCode,
-                    emoji = device.typeEmoji,
-                    waterType = wType,
-                    projectId = devPid
-                ))
-                recentDevices = PrefsHelper.getRecentDevices()
-
-                activeOrders.add(ActiveOrder(snCode, "", device.displayName, device.macAddress, device.typeEmoji, device.withholdMoney, projectId = devPid))
+                unverifiedOrders.remove(pending)
+                activeOrders.removeAll { it.snCode == snCode }
+                activeOrders.add(pending)
                 saveOrders()
                 enterShowerState(null, snCode, device, autoDiscon)
 
-                orderPollJob?.cancel()
-                orderPollJob = viewModelScope.launch {
-                    for (i in 0..10) {
-                        delay(800)
-                        if (currentOrderNo != null) break
-                        try {
-                            val p = NetworkModule.apiService.queryUsingSafe(snCode = snCode, auth = devAuth)
-                            if (p.errorCode == 307 || (p.success && p.data?.orderNo != null)) {
-                                currentOrderNo = p.data?.orderNo
-                                updateOrderNo(snCode, currentOrderNo ?: "")
-                            } else checkKick(p.displayMessage)
-                        } catch (e: Exception) { checkKickEx(e) }
-                    }
-                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (e: Exception) {
                 checkKickEx(e)
                 val msg = e.message ?: "网络错误"
@@ -503,7 +519,7 @@ class MainViewModel(
                     showerError = msg
                     toastMessage = "出水异常: $msg"
                 }
-            } finally { isStartingShower = false }
+            } finally { if (deviceSessionGeneration == session) isStartingShower = false }
         }
     }
 
@@ -516,21 +532,22 @@ class MainViewModel(
     }
 
     private fun enterShowerState(orderNo: String?, snCode: String, device: DeviceInfo, autoDiscon: Int = 0) {
+        sessionDevice = device
         currentOrderNo = orderNo; isShowering = true
         showerPreDeduct = device.withholdMoney; showerConsumed = 0.0
         showerRemaining = "%.2f".format(device.withholdMoney)
         activeDeviceSnCodes.add(snCode)
 
-        // 自动关停倒计时：仅在已知且尚未开始时初始化
-        if (autoDiscon > 0 && PrefsHelper.getAutoDisconRemain(snCode) <= 0) {
-            autoDisConSec = autoDiscon
-            PrefsHelper.setAutoDisconRemain(snCode, autoDiscon)
-        }
+        val restoredRemaining = PrefsHelper.getAutoDisconRemain(snCode)
+        autoDisConSec = restoredRemaining.takeIf { it > 0 } ?: autoDiscon
+        val deadline = if (autoDisConSec > 0) {
+            PrefsHelper.deviceDeadline(snCode, autoDisConSec)
+        } else 0L
 
         val now = System.currentTimeMillis()
         val st = PrefsHelper.getStartedAt(snCode)
         val isValidSt = st > 0L && st <= now && (now - st) < 4 * 3600 * 1000L
-        if (orderNo == null || !isValidSt) {
+        if (!isValidSt) {
             PrefsHelper.setStartedAt(snCode, now)
             showerElapsedSec = 0
         } else {
@@ -554,54 +571,46 @@ class MainViewModel(
 
         timerJob?.cancel()
         timerJob = viewModelScope.launch {
-            var tick = 0
+            val elapsedStart = SystemClock.elapsedRealtime() - showerElapsedSec * 1000L
             while (isShowering) {
-                delay(500); tick++
-                val curSt = PrefsHelper.getStartedAt(snCode)
-                if (curSt > 0) {
-                    val diff = (System.currentTimeMillis() - curSt) / 1000
-                    showerElapsedSec = if (diff >= 0) diff.toInt() else 0
-                }
-
-                // 自动关停倒计时递减（每秒递减，500ms * 2 = 1s）
-                if (tick % 2 == 0) {
-                    val remain = PrefsHelper.getAutoDisconRemain(snCode)
-                    if (remain > 0) {
-                        val newRemain = remain - 1
-                        PrefsHelper.setAutoDisconRemain(snCode, newRemain)
-                        autoDisConSec = newRemain
-                        if (newRemain <= 0) {
-                            onAutoClose(snCode)
-                            return@launch
-                        }
-                    }
-                }
+                showerElapsedSec = ((SystemClock.elapsedRealtime() - elapsedStart) / 1000L).toInt()
+                autoDisConSec = if (deadline > 0) {
+                    ((deadline - System.currentTimeMillis() + 999L) / 1000L).coerceAtLeast(0L).toInt()
+                } else 0
+                delay(1000)
             }
         }
+        monitorDevice(snCode, device)
+    }
 
-        // 0.2 秒极速探活协程：实时检查饮水机是否已被机身按键关闭（200ms）
+    private fun monitorDevice(snCode: String, device: DeviceInfo, immediate: Boolean = false) {
         probeJob?.cancel()
-        probeJob = viewModelScope.launch(Dispatchers.IO) {
-            val overridePid = device.projectId?.toString() ?: selectedDevice?.projectId?.toString()
-            while (isShowering) {
-                delay(200L)
-                try {
-                    val q = NetworkModule.apiService.queryUsingSafe(snCode = snCode, auth = NetworkModule.authFields(overrideProjectId = overridePid))
-                    if (q.success && q.data?.orderNo == null && q.errorCode != 307) {
-                        kotlinx.coroutines.withContext(Dispatchers.Main) {
-                            onAutoClose(snCode)
-                        }
-                        return@launch
+        val session = deviceSessionGeneration
+        val account = accountGeneration
+        val projectId = activeOrders.find { it.snCode == snCode }?.projectId
+            ?: device.projectId?.toString()?.takeIf { it != "0" }
+        probeJob = viewModelScope.launch {
+            monitorDeviceOrder(
+                drinkingWater = device.isDrinkingWater,
+                foreground = deviceForeground,
+                immediate = immediate,
+                current = {
+                    session == deviceSessionGeneration && account == accountGeneration &&
+                        isShowering && showerSnCode == snCode && !isStopping && !showAutoCloseDialog
+                },
+                query = {
+                    NetworkModule.apiService.queryUsingSafe(
+                        snCode = snCode, auth = NetworkModule.authFields(overrideProjectId = projectId)
+                    )
+                },
+                onOrder = { orderNo ->
+                    if (currentOrderNo != orderNo) {
+                        currentOrderNo = orderNo
+                        updateOrderNo(snCode, orderNo)
                     }
-                    if (currentOrderNo == null && q.success && !q.data?.orderNo.isNullOrEmpty()) {
-                        kotlinx.coroutines.withContext(Dispatchers.Main) {
-                            val oNo = q.data!!.orderNo!!
-                            currentOrderNo = oNo
-                            updateOrderNo(snCode, oNo)
-                        }
-                    }
-                } catch (_: Exception) {}
-            }
+                },
+                onEnded = { onAutoClose(snCode) }
+            )
         }
     }
 
@@ -609,8 +618,9 @@ class MainViewModel(
         viewModelScope.launch(Dispatchers.Main.immediate) {
             try {
                 val msg = gson.fromJson(message, MqttOrderMsg::class.java)
-                msg.orderNo?.let { orderNo -> if (currentOrderNo == null) { currentOrderNo = orderNo; showerSnCode?.let { sn -> updateOrderNo(sn, orderNo) } } }
-                msg.consumeMoney?.let {
+                if (!isShowering || isStopping || showAutoCloseDialog ||
+                    currentOrderNo.isNullOrBlank() || msg.orderNo != currentOrderNo) return@launch
+                msg.consumeMoney?.takeIf { it.isFinite() && it >= 0 }?.let {
                     showerConsumed = it
                     showerRemaining = "%.2f".format(if (showerPreDeduct - it < 0) 0.0 else showerPreDeduct - it)
                 }
@@ -623,33 +633,33 @@ class MainViewModel(
      * 用户点确认后才真正退出（finishShower）。
      */
     private fun onAutoClose(snCode: String) {
-        if (!isShowering) return
+        if (!isShowering || isStopping || showAutoCloseDialog || showerSnCode != snCode) return
         // 停止计时（弹窗期间洗澡界面不再走秒）
-        timerJob?.cancel(); orderPollJob?.cancel(); probeJob?.cancel()
+        timerJob?.cancel(); probeJob?.cancel()
 
-        autoCloseDeviceName = selectedDevice?.displayName ?: lastDeviceName.ifEmpty { "热水器" }
+        autoCloseDeviceName = sessionDevice?.displayName ?: lastDeviceName.ifEmpty { "热水器" }
         autoCloseElapsed = showerElapsedSec
-        autoCloseConsumed = 0.0
-        autoCloseLoading = false
+        autoCloseConsumed = null
+        autoCloseLoading = true
         showAutoCloseDialog = true
 
         val startTime = PrefsHelper.getStartedAt(snCode)
-        val closingOrderNo = currentOrderNo ?: activeOrders.find { it.snCode == snCode }?.orderNo.orEmpty()
+        val order = activeOrders.find { it.snCode == snCode }
+        val closingOrderNo = currentOrderNo ?: order?.orderNo.orEmpty()
+        val project = order?.projectId ?: sessionDevice?.projectId?.toString()?.takeIf { it != "0" }
+        val generation = deviceSessionGeneration
         // The device is already stopped. Dismissing the receipt must not own cleanup.
         clearActiveRecord(snCode)
         // 立即清除持久化的开阀时间戳与倒计时，防止用户不点弹窗确认直接退出时残留脏时间戳
         PrefsHelper.setStartedAt(snCode, 0L)
         PrefsHelper.clearAutoDiscon(snCode)
 
-        // 后台异步静默等账单结算，若拿到金额则更新弹窗显示，不阻塞用户点击确认退出
-        viewModelScope.launch {
-            val orderNo = closingOrderNo
-            try {
-                val amount = queryLastBillAmount(orderNo, startTime) ?: 0.0
-                if (amount > 0.0) {
-                    autoCloseConsumed = amount
-                }
-            } catch (_: Exception) {}
+        settlementJob = viewModelScope.launch {
+            val amount = queryDeviceSettlement(closingOrderNo, project, startTime)
+            if (generation == deviceSessionGeneration) {
+                autoCloseConsumed = amount
+                autoCloseLoading = false
+            }
         }
     }
 
@@ -661,44 +671,46 @@ class MainViewModel(
     }
 
     // ════════════════════════════════════════════
-    fun stopShower(skipNetwork: Boolean = false) {
+    fun stopShower() {
         if (!isShowering || isStopping) return
         val snCode = showerSnCode ?: ""
         val oNo = currentOrderNo ?: activeOrders.find { it.snCode == snCode }?.orderNo ?: ""
 
-        // 挤号等场景：loginCode 已失效，跳过网络请求，直接本地清理，避免再次触发挤号
-        if (skipNetwork) {
-            finishShower(snCode, null)
-            return
-        }
-
         isStopping = true
-        viewModelScope.launch {
+        probeJob?.cancel()
+        val session = deviceSessionGeneration
+        stopDeviceJob = viewModelScope.launch {
             try {
                 val activeOrder = activeOrders.find { it.snCode == snCode }
-                val devPid = selectedDevice?.projectId?.toString()?.takeIf { it.isNotBlank() && it != "0" && it != "null" }
-                    ?: activeOrder?.projectId
+                val devPid = activeOrder?.projectId ?: sessionDevice
+                    ?.projectId?.toString()?.takeIf { it != "0" }
                 val devAuth = NetworkModule.authFields(overrideProjectId = devPid)
 
                 var orderNo = oNo
-                if (orderNo.isEmpty()) {
+                if (orderNo.isBlank()) {
                     val p = NetworkModule.apiService.queryUsingSafe(snCode = snCode, auth = devAuth)
-                    orderNo = p.data?.orderNo ?: ""
+                    if (verifyOrder(p) == OrderVerification.ENDED) {
+                        isStopping = false
+                        onAutoClose(snCode)
+                        return@launch
+                    }
+                    orderNo = p.data?.orderNo.orEmpty()
+                    if (orderNo.isBlank()) {
+                        toastMessage = "暂时无法确认订单，请稍后重试"
+                        return@launch
+                    }
                 }
 
                 // 1. 发送关阀指令
                 val close = NetworkModule.apiService.closeOrderSafe(snCode = snCode, orderNo = orderNo, auth = devAuth)
                 if (!close.success) {
                     checkKick(close.displayMessage)
-                    // 服务器已接受/已在关闭中时也视为成功
-                    if (close.errorCode == 307 || close.displayMessage?.contains("已在") == true) {
-                        finishShower(snCode, null)
-                    } else {
+                    // A request already in progress still requires confirmation.
+                    if (close.errorCode != 307 && close.displayMessage?.contains("已在") != true) {
                         toastMessage = close.displayMessage ?: "关闭失败，请重试"
-                        cn.mudlife.app.utils.AppLogger.e("Shower", "关阀请求失败: ${close.displayMessage} | sn: $snCode, 订单: $orderNo, devPid: $devPid")
-                        isStopping = false
+                        cn.mudlife.app.utils.AppLogger.e("Shower", "关阀请求失败")
+                        return@launch
                     }
-                    return@launch
                 }
 
                 // 2. 轮询确认关阀结果（最多 5 次，间隔 1 秒）
@@ -709,110 +721,53 @@ class MainViewModel(
                         val r = NetworkModule.apiService.closeOrderResultSafe(snCode = snCode, orderNo = orderNo, auth = devAuth)
                         if (r.success) {
                             val d = r.data
-                            val closed = d == null ||
-                                d.state == 0 ||
-                                d.status == 0 ||
-                                d.orderNo.isNullOrEmpty()
+                            val closed = d != null && (d.state == 0 || d.status == 0)
                             if (closed) { closedOk = true; break }
                         } else {
                             checkKick(r.displayMessage)
                         }
-                    } catch (_: Exception) {}
+                    } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) {}
                 }
 
                 // 兜底探活：若 5 次轮询仍未返回关阀状态，调用 queryUsingSafe 核验水机是否已停
                 if (!closedOk) {
                     try {
                         val q = NetworkModule.apiService.queryUsingSafe(snCode = snCode, auth = devAuth)
-                        if (q.success && q.data?.orderNo == null && q.errorCode != 307) {
+                        if (verifyOrder(q) == OrderVerification.ENDED) {
                             closedOk = true
                         }
-                    } catch (_: Exception) {}
+                    } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) {}
                 }
 
                 // 3. 关阀确认成功后：先立即退出（不阻塞），后台异步等账单结算后弹金额
                 if (closedOk) {
                     val startTime = PrefsHelper.getStartedAt(snCode)  // 开阀时间戳，未开始时为 0
                     finishShower(snCode, null)
-                    // 后台轮询账单（最多 10 次 × 2 秒 = 20 秒），拿到金额后弹 toast
-                    viewModelScope.launch {
-                        val amount = queryLastBillAmount(orderNo, startTime)
-                        val isWater = selectedDevice?.isDrinkingWater == true ||
-                            selectedDevice?.displayName?.contains("饮水") == true ||
-                            (activeOrder?.deviceName?.contains("饮水") == true)
-                        val devTitle = if (isWater) "饮水机" else "出水设备"
-                        if (amount != null) {
-                            toastMessage = if (amount > 0) {
-                                "已停止，本次消费 ¥%.2f".format(amount)
-                            } else {
-                                "${devTitle}已关闭，本次无消费"
-                            }
-                        } else {
-                            toastMessage = "${devTitle}已关闭"
+                    settlementJob = viewModelScope.launch {
+                        val amount = queryDeviceSettlement(orderNo, devPid, startTime)
+                        if (session == deviceSessionGeneration) {
+                            toastMessage = amount?.let { "已停止，本次消费 ¥%.2f".format(it) }
+                                ?: "设备已停止，本次费用待结算"
                         }
                     }
                 } else {
                     showerError = "关水未确认，请检查水机或重试"
                     toastMessage = "关水未确认成功，请再次点击或检查水机"
-                    cn.mudlife.app.utils.AppLogger.e("Shower", "关水未确认: 5次轮询与兜底queryUsing均未确认关闭 | sn: $snCode, 订单: $orderNo")
+                    cn.mudlife.app.utils.AppLogger.e("Shower", "关水未确认")
                     isStopping = false
                 }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (e: Exception) {
                 checkKickEx(e)
                 toastMessage = "停止用水失败，请检查网络后重试"
-                isStopping = false
+            } finally {
+                if (session == deviceSessionGeneration && isShowering && !showAutoCloseDialog && showerSnCode == snCode) {
+                    isStopping = false
+                    sessionDevice?.let { monitorDevice(snCode, it) }
+                }
             }
         }
-    }
-
-    /**
-     * 查询账单获取本次消费金额（后台异步调用，不阻塞关闭流程）。
-     * 账单结算可能有延迟，故轮询最多 10 次（每次间隔 2 秒，共约 20 秒）等服务器结算完成。
-     * 只统计 [startTime]（开阀时间戳，毫秒）之后产生的账单，避免读到上一次的消费；
-     * 优先匹配当前订单号（billRequestType=2 时 orderId 与 orderNo 对应）。
-     * 超时仍无消费时返回 0.0。
-     */
-    private suspend fun queryLastBillAmount(orderNo: String, startTime: Long): Double? {
-        val parsers = listOf(
-            java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()),
-            java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.getDefault()),
-            java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", java.util.Locale.getDefault())
-        )
-        val fmt = java.text.SimpleDateFormat("yyyy-MM", java.util.Locale.getDefault())
-        val month = fmt.format(java.util.Calendar.getInstance().time)
-
-        for (attempt in 0 until 10) {
-            try {
-                val resp = NetworkModule.apiService.getBillListSafe(month = month)
-                val bills = resp.data ?: return null
-
-                // 优先精确匹配订单号
-                if (orderNo.isNotEmpty()) {
-                    val matched = bills.firstOrNull { it.safeConsumeBillDTO.safeOrderId == orderNo }
-                    if (matched != null) {
-                        val m = matched.safeConsumeBillDTO.safeConsumeMoney.toDoubleOrNull()
-                        if (m != null && m > 0) return m
-                        // 金额仍为 0 → 可能结算中，继续轮询
-                    }
-                }
-
-                // 开阀之后的账单取最新一笔
-                val recent = bills.filter { bill ->
-                    if (startTime <= 0) return@filter true
-                    val t = parsers.asSequence()
-                        .map { p -> try { p.parse(bill.safeConsumeBillDTO.safeConsumeDate)?.time ?: 0L } catch (_: Exception) { 0L } }
-                        .maxOrNull() ?: 0L
-                    t >= startTime
-                }
-                if (recent.isNotEmpty()) {
-                    val latest = recent.maxByOrNull { it.safeConsumeBillDTO.safeConsumeDate }
-                    val m = latest?.safeConsumeBillDTO?.safeConsumeMoney?.toDoubleOrNull()
-                    if (m != null && m > 0) return m
-                }
-            } catch (_: Exception) {}
-            if (attempt < 9) delay(2000)
-        }
-        return 0.0
     }
 
     /** 完成停止流程：退出洗澡界面，清理状态，显示结算结果 */
@@ -826,7 +781,7 @@ class MainViewModel(
         if (consumed != null) {
             toastMessage = "已停止，本次消费 ¥%.2f".format(consumed)
         } else {
-            toastMessage = "饮水机已关闭"
+            toastMessage = "设备已确认停止，正在核对结算"
         }
 
         currentOrderNo = null; showerConsumed = 0.0; showerPreDeduct = 0.0
@@ -834,7 +789,7 @@ class MainViewModel(
         autoDisConSec = 0
         PrefsHelper.setStartedAt(snCode, 0L) // 重置该设备计时器
         PrefsHelper.clearAutoDiscon(snCode)  // 清除自动关停倒计时
-        showerSnCode = null; timerJob?.cancel(); orderPollJob?.cancel(); probeJob?.cancel(); probeJob?.cancel()
+        showerSnCode = null; sessionDevice = null; timerJob?.cancel(); probeJob?.cancel()
         try { mqttManager?.disconnect() } catch (_: Exception) {}
     }
 
@@ -842,6 +797,13 @@ class MainViewModel(
         deviceBills.clear()
         lastWalletOwner = null
         accountGeneration++
+        deviceSessionGeneration++
+        startDeviceJob?.cancel()
+        stopDeviceJob?.cancel()
+        settlementJob?.cancel()
+        isStartingShower = false
+        isStopping = false
+        showAutoCloseDialog = false
         lifeRequests.invalidate()
         refreshGeneration++; refreshJob?.cancel(); isRefreshing = false
         probeJob?.cancel()
@@ -852,7 +814,6 @@ class MainViewModel(
         unverifiedOrders.clear()
         // 停止所有后台任务
         timerJob?.cancel()
-        orderPollJob?.cancel()
 
         // 断开 MQTT 连接
         try { mqttManager?.disconnect() } catch (_: Exception) {}
@@ -871,6 +832,7 @@ class MainViewModel(
         toastMessage = null
         kickedOut = false
         selectedDevice = null
+        sessionDevice = null
         showDeviceDetail = false
         recentDevices = emptyList()
         activeOrders.clear()
@@ -908,7 +870,7 @@ class MainViewModel(
                 msg.contains("token失效") ||
                 msg.contains("token过期")
         if (isRealKick) {
-            cn.mudlife.app.utils.AppLogger.e("Auth", "触发账号强制下线: $msg")
+            cn.mudlife.app.utils.AppLogger.e("Auth", "触发账号强制下线")
             kickedOut = true
             deviceBills.clear()
             PrefsHelper.clearLifeAccount()
@@ -917,7 +879,7 @@ class MainViewModel(
     private fun checkKickEx(e: Exception) {
         val m = e.message ?: return
         if (m.contains("401") || m.contains("403") || m.contains("Unauthorized") || m.contains("Forbidden")) {
-            cn.mudlife.app.utils.AppLogger.e("Auth", "触发网络鉴权失效下线: $m")
+            cn.mudlife.app.utils.AppLogger.e("Auth", "触发网络鉴权失效下线")
             kickedOut = true
             deviceBills.clear()
             PrefsHelper.clearLifeAccount()

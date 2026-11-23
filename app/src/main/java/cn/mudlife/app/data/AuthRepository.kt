@@ -20,15 +20,16 @@ object AuthRepository {
                 val map = pResp.data.associate { it.projectId.toString() to it.accountId.toString() }
                 NetworkModule.setProjectAccounts(map)
                 PrefsHelper.saveProjectAccounts(map)
-                cn.mudlife.app.utils.AppLogger.i("Auth", "已成功同步多项目账户映射: $map")
+                cn.mudlife.app.utils.AppLogger.i("Auth", "已成功同步多项目账户映射")
             }
         } catch (cancelled: CancellationException) { throw cancelled } catch (e: Exception) {
-            cn.mudlife.app.utils.AppLogger.w("Auth", "拉取多项目列表失败: ${e.message}")
+            cn.mudlife.app.utils.AppLogger.w("Auth", "拉取多项目列表失败")
         }
     }
 
     suspend fun login(phone: String, passwordRaw: String): Result<LoginData> {
         return try {
+            check(PrefsHelper.canStoreSessions) { "设备的安全存储不可用，请重启后重试" }
             val encryptedPassword = MD5Utils.encryptPassword(passwordRaw)
             val response = NetworkModule.apiService.loginSafe(
                 telephone = phone,
@@ -72,6 +73,7 @@ object AuthRepository {
 
     suspend fun smsLogin(phone: String, smsCode: String): Result<LoginData> {
         return try {
+            check(PrefsHelper.canStoreSessions) { "设备的安全存储不可用，请重启后重试" }
             val response = NetworkModule.apiService.registerAndLoginSafe(phone, smsCode)
             if (response.success && response.data != null) {
                 val data = response.data

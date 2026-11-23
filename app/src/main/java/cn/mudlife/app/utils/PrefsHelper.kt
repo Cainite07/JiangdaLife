@@ -21,67 +21,51 @@ object PrefsHelper {
 
     internal val accountGuide get() = AccountGuidePreferences(prefs)
 
+    var canStoreSessions = false
+        private set
+
     fun init(context: Context) {
-        val masterKey = try {
-            MasterKey.Builder(context)
-                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-                .build()
-        } catch (_: Exception) {
-            null
-        }
+        val masterKey = runCatching {
+            MasterKey.Builder(context).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build()
+        }.getOrNull()
+        val encrypted = masterKey?.let { openEncrypted(context, "mudlife_prefs", it) }
+        canStoreSessions = encrypted != null
+        prefs = encrypted ?: context.getSharedPreferences("jiangda_display_settings", Context.MODE_PRIVATE)
+        if (encrypted != null) migrateLegacyPreferences(context, masterKey)
+    }
 
-        prefs = if (masterKey != null) {
-            try {
-                EncryptedSharedPreferences.create(
-                    context,
-                    "mudlife_prefs",
-                    masterKey,
-                    EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-                    EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-                )
-            } catch (_: Exception) {
-                context.getSharedPreferences("mudlife_prefs", Context.MODE_PRIVATE)
-            }
-        } else {
-            context.getSharedPreferences("mudlife_prefs", Context.MODE_PRIVATE)
-        }
+    private fun openEncrypted(context: Context, name: String, key: MasterKey): SharedPreferences? =
+        runCatching {
+            EncryptedSharedPreferences.create(
+                context, name, key,
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+            ).also { it.all }
+        }.getOrNull()
 
-        // 平滑迁移旧版 linyu_prefs 数据（确保升级后免重登）
-        try {
-            if (prefs.getString("loginCode", "").isNullOrEmpty()) {
-                val oldPrefs = if (masterKey != null) {
-                    try {
-                        EncryptedSharedPreferences.create(
-                            context,
-                            "linyu_prefs",
-                            masterKey,
-                            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-                            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-                        )
-                    } catch (_: Exception) {
-                        context.getSharedPreferences("linyu_prefs", Context.MODE_PRIVATE)
-                    }
-                } else {
-                    context.getSharedPreferences("linyu_prefs", Context.MODE_PRIVATE)
-                }
-
-                val allOld = oldPrefs.all
-                if (!allOld.isNullOrEmpty()) {
-                    val editor = prefs.edit()
-                    for ((k, v) in allOld) {
-                        when (v) {
-                            is String -> editor.putString(k, v)
-                            is Int -> editor.putInt(k, v)
-                            is Long -> editor.putLong(k, v)
-                            is Float -> editor.putFloat(k, v)
-                            is Boolean -> editor.putBoolean(k, v)
-                            is Set<*> -> @Suppress("UNCHECKED_CAST") editor.putStringSet(k, v as Set<String>)
-                        }
-                    }
-                    editor.apply()
+    private fun migrateLegacyPreferences(context: Context, key: MasterKey) {
+        val marker = "legacy_preferences_migrated"
+        if (prefs.getBoolean(marker, false)) return
+        val legacy = context.getSharedPreferences("linyu_prefs", Context.MODE_PRIVATE)
+        val old = if (legacy.all.isEmpty()) emptyMap() else openEncrypted(context, "linyu_prefs", key)?.all ?: legacy.all
+        val allowed = setOf("loginCode", "userId", "accountId", "projectId", "telephone",
+            "userName", "studentNo", "schoolName", "lastDeviceName", "lastDeviceMac",
+            "lastDeviceSnCode", "lastDeviceEmoji", "recentDevices", "activeOrders", "projectAccounts",
+            "qzhqLoginCode", "qzhqPhone", "qzhqProjectId", "qzhqCustomCode", "touchFeedback")
+        val existing = prefs.all
+        val editor = prefs.edit().putBoolean(marker, true)
+        if (existing.keys.none { it in allowed && it != "touchFeedback" }) {
+            for ((name, value) in old) {
+                if (name in existing) continue
+                if (name !in allowed && !name.startsWith("startedAt_") && !name.startsWith("autoDiscon_")) continue
+                when (value) {
+                    is String -> editor.putString(name, value)
+                    is Long -> editor.putLong(name, value)
+                    is Boolean -> editor.putBoolean(name, value)
                 }
             }
-        } catch (_: Exception) {}
+        }
+        if (editor.commit() && old.isNotEmpty()) context.deleteSharedPreferences("linyu_prefs")
     }
 
     // ── Auth ──
@@ -136,6 +120,7 @@ object PrefsHelper {
     val isQzhqLoggedIn: Boolean get() = qzhqLoginCode.isNotEmpty() && !qzhqSessionExpired
 
     fun saveAuth(lc: String, uid: String, aid: String, pid: String, phone: String, name: String?, sno: String? = null) {
+        check(canStoreSessions) { "设备的安全存储不可用，请重启后重试" }
         if (telephone.isNotBlank() && telephone != phone) clearLifeAccount()
         loginCode = lc; userId = uid; accountId = aid; projectId = pid; telephone = phone; userName = name ?: ""
         if (!sno.isNullOrEmpty()) studentNo = sno
@@ -313,13 +298,13 @@ object PrefsHelper {
         return if (remain > 0) remain else 0
     }
 
-    /** 设置剩余秒数，转换为截止时间戳保存 */
-    fun setAutoDisconRemain(snCode: String, seconds: Int) {
-        if (seconds <= 0) {
-            prefs.edit().remove(autoDisconKey(snCode)).apply()
-        } else {
-            prefs.edit().putLong(autoDisconKey(snCode), System.currentTimeMillis() + seconds * 1000L).apply()
-        }
+    fun deviceDeadline(snCode: String, seconds: Int): Long {
+        val key = autoDisconKey(snCode)
+        val stored = prefs.getLong(key, 0L)
+        if (stored > 0L) return stored
+        val deadline = System.currentTimeMillis() + seconds * 1000L
+        prefs.edit().putLong(key, deadline).apply()
+        return deadline
     }
 
     fun clearAutoDiscon(snCode: String) = prefs.edit().remove(autoDisconKey(snCode)).apply()

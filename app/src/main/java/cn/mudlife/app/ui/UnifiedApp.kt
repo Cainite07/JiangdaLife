@@ -148,9 +148,10 @@ fun UnifiedApp(life: MainViewModel, campus: CampusViewModel) {
                 Lifecycle.Event.ON_RESUME -> {
                     foreground = true
                     campus.resume()
+                    life.setDeviceForeground(true)
                     if (guideEnabled) life.validateQzhqSession()
                 }
-                Lifecycle.Event.ON_PAUSE -> { foreground = false; campus.pause() }
+                Lifecycle.Event.ON_PAUSE -> { foreground = false; campus.pause(); life.setDeviceForeground(false) }
                 else -> Unit
             }
         }

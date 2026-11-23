@@ -273,11 +273,12 @@ fun MainScreen(
                     val t = if (sec / 60 > 0) "${sec / 60}分${sec % 60}秒" else "${sec}秒"
                     Text("已用 $t", color = AppColors.TextSecondary)
                     Spacer(Modifier.height(12.dp))
-                    if (viewModel.autoCloseConsumed > 0.0) {
+                    if (viewModel.autoCloseConsumed != null) {
                         Text("本次消费：¥%.2f".format(viewModel.autoCloseConsumed),
                             fontWeight = FontWeight.Bold, color = AppColors.Accent)
                     } else {
-                        Text("账单已在后台记入钱包", fontSize = 13.sp, color = AppColors.TextSecondary)
+                        Text(if (viewModel.autoCloseLoading) "正在核对结算" else "本次费用待结算，可稍后查看账单",
+                            fontSize = 13.sp, color = AppColors.TextSecondary)
                     }
                 }
             },
