@@ -89,6 +89,11 @@ class SchoolActivity : ComponentActivity() {
             isAppearanceLightNavigationBars = !palette.isDark
         }
         session = SessionStore(this)
+        if (!session.storageAvailable) {
+            android.widget.Toast.makeText(this, SCHOOL_STORAGE_UNAVAILABLE, android.widget.Toast.LENGTH_LONG).show()
+            finish()
+            return
+        }
         electric = intent.getStringExtra("mode") == "electric"
         payment = electric || intent.getStringExtra("mode") == "payment"
         electricDorm = runCatching { Dorm.parse(JSONObject(intent.getStringExtra("dorm").orEmpty())) }.getOrNull()
@@ -589,7 +594,7 @@ class SchoolActivity : ComponentActivity() {
     }
     override fun onPause() {
         active = false
-        if (cardLogin) {
+        if (::browser.isInitialized && cardLogin) {
             loginWatch?.cancel()
             recovery.resetObservation()
             observedEmptyCard = false
@@ -602,7 +607,7 @@ class SchoolActivity : ComponentActivity() {
         super.onPause()
     }
     override fun onSaveInstanceState(outState: Bundle) {
-        if (cardLogin) outState.putBoolean("cardAutomaticRecovery", recovery.automaticAttempted)
+        if (::browser.isInitialized && cardLogin) outState.putBoolean("cardAutomaticRecovery", recovery.automaticAttempted)
         if (payment) outState.putString("paymentAccount", account)
         outState.putBoolean("creationStarted", creationStarted)
         outState.putBoolean("payStarted", payStarted)

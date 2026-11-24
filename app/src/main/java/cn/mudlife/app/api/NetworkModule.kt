@@ -1,5 +1,6 @@
 package cn.mudlife.app.api
 
+import cn.mudlife.app.utils.DiagnosticService
 import cn.mudlife.app.BuildConfig
 import cn.mudlife.app.utils.PrefsHelper
 import okhttp3.Interceptor
@@ -156,10 +157,10 @@ object NetworkModule {
             }
             val elapsed = android.os.SystemClock.elapsedRealtime() - started
             if (resp == null) {
-                cn.mudlife.app.utils.AppLogger.net("设备服务", null, elapsed)
+                cn.mudlife.app.utils.AppLogger.net(DiagnosticService.DEVICE, null, elapsed)
                 throw (lastException ?: java.io.IOException("Network request failed"))
             }
-            if (!resp.isSuccessful) cn.mudlife.app.utils.AppLogger.net("设备服务", resp.code, elapsed)
+            if (!resp.isSuccessful) cn.mudlife.app.utils.AppLogger.net(DiagnosticService.DEVICE, resp.code, elapsed)
             resp
         }
         .build()

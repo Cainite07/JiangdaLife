@@ -1,5 +1,6 @@
 package cn.mudlife.app.data
 
+import cn.mudlife.app.utils.DiagnosticEvent
 import cn.mudlife.app.api.NetworkModule
 import cn.mudlife.app.api.getUserProjectsSafe
 import cn.mudlife.app.api.getVerificationCodeSafe
@@ -20,10 +21,10 @@ object AuthRepository {
                 val map = pResp.data.associate { it.projectId.toString() to it.accountId.toString() }
                 NetworkModule.setProjectAccounts(map)
                 PrefsHelper.saveProjectAccounts(map)
-                cn.mudlife.app.utils.AppLogger.i("Auth", "已成功同步多项目账户映射")
+                cn.mudlife.app.utils.AppLogger.record(DiagnosticEvent.PROJECT_ACCOUNTS_SYNCED)
             }
         } catch (cancelled: CancellationException) { throw cancelled } catch (e: Exception) {
-            cn.mudlife.app.utils.AppLogger.w("Auth", "拉取多项目列表失败")
+            cn.mudlife.app.utils.AppLogger.record(DiagnosticEvent.PROJECT_ACCOUNTS_FAILED)
         }
     }
 

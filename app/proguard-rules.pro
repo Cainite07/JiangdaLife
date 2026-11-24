@@ -47,7 +47,6 @@
 -keep class cn.mudlife.app.model.** { *; }
 # Stable field names for the school Bill nested inside encrypted device-history JSON.
 -keep class cn.mudlife.campuscard.Bill { *; }
--keep class cn.mudlife.app.api.** { *; }
 -keep class com.google.gson.** { *; }
 -keep class com.google.gson.reflect.TypeToken { *; }
 -keep class * extends com.google.gson.reflect.TypeToken

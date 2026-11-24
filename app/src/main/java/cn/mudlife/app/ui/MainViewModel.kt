@@ -1,5 +1,6 @@
 package cn.mudlife.app.ui
 
+import cn.mudlife.app.utils.DiagnosticEvent
 import android.os.SystemClock
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -406,7 +407,7 @@ class MainViewModel(
                             val map = pResp.data.associate { it.projectId.toString() to it.accountId.toString() }
                             NetworkModule.setProjectAccounts(map)
                             PrefsHelper.saveProjectAccounts(map)
-                            cn.mudlife.app.utils.AppLogger.i("Shower", "开阀前补全多项目账户映射")
+                            cn.mudlife.app.utils.AppLogger.record(DiagnosticEvent.DEVICE_PROJECT_ACCOUNTS_SYNCED)
                         }
                     } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) {}
                 }
@@ -470,7 +471,7 @@ class MainViewModel(
                     val msg = resp.displayMessage ?: "开始失败"
                     showerError = msg
                     toastMessage = "出水失败: $msg"
-                    cn.mudlife.app.utils.AppLogger.e("Shower", "服务未接受开阀请求")
+                    cn.mudlife.app.utils.AppLogger.record(DiagnosticEvent.DEVICE_START_REJECTED)
                     checkKick(resp.displayMessage); return@launch
                 }
 
@@ -501,7 +502,7 @@ class MainViewModel(
                     // 开阀确认失败，退出并提示
                     showerError = "开阀未确认成功，请确认设备是否已开启"
                     toastMessage = "开阀未确认，请检查水机或网络重试"
-                    cn.mudlife.app.utils.AppLogger.e("Shower", "开阀确认失败")
+                    cn.mudlife.app.utils.AppLogger.record(DiagnosticEvent.DEVICE_START_UNCONFIRMED)
                     return@launch
                 }
 
@@ -697,7 +698,7 @@ class MainViewModel(
                     // A request already in progress still requires confirmation.
                     if (close.errorCode != 307 && close.displayMessage?.contains("已在") != true) {
                         toastMessage = close.displayMessage ?: "关闭失败，请重试"
-                        cn.mudlife.app.utils.AppLogger.e("Shower", "关阀请求失败")
+                        cn.mudlife.app.utils.AppLogger.record(DiagnosticEvent.DEVICE_STOP_REJECTED)
                         return@launch
                     }
                 }
@@ -746,7 +747,7 @@ class MainViewModel(
                 } else {
                     showerError = "关水未确认，请检查水机或重试"
                     toastMessage = "关水未确认成功，请再次点击或检查水机"
-                    cn.mudlife.app.utils.AppLogger.e("Shower", "关水未确认")
+                    cn.mudlife.app.utils.AppLogger.record(DiagnosticEvent.DEVICE_STOP_UNCONFIRMED)
                     isStopping = false
                 }
             } catch (cancelled: CancellationException) {
@@ -858,7 +859,7 @@ class MainViewModel(
                 msg.contains("token失效") ||
                 msg.contains("token过期")
         if (isRealKick) {
-            cn.mudlife.app.utils.AppLogger.e("Auth", "触发账号强制下线")
+            cn.mudlife.app.utils.AppLogger.record(DiagnosticEvent.ACCOUNT_KICKED)
             logout()
             PrefsHelper.clearLifeAccount()
             kickedOut = true
@@ -866,7 +867,7 @@ class MainViewModel(
     }
     private fun checkKickEx(e: Exception) {
         if (e is cn.mudlife.app.api.DeviceHttpException && e.status == 401) {
-            cn.mudlife.app.utils.AppLogger.e("Auth", "触发网络鉴权失效下线")
+            cn.mudlife.app.utils.AppLogger.record(DiagnosticEvent.ACCOUNT_HTTP_EXPIRED)
             logout()
             PrefsHelper.clearLifeAccount()
             kickedOut = true
@@ -1030,10 +1031,7 @@ class MainViewModel(
                 }
                 val serverData = confirmedData
                 if (serverData == null) {
-                    cn.mudlife.app.utils.AppLogger.w(
-                        "UseCode",
-                        "服务端未回读到新使用码，保留候选码等待重试"
-                    )
+                    cn.mudlife.app.utils.AppLogger.record(DiagnosticEvent.USE_CODE_UNCONFIRMED)
                     toastMessage = "服务器尚未同步新码，请稍后重试"
                     return@launch
                 }

@@ -1,5 +1,7 @@
 package cn.mudlife.app.api
 
+import cn.mudlife.app.utils.DiagnosticService
+import cn.mudlife.app.utils.DiagnosticEvent
 import com.google.gson.Gson
 import com.google.gson.JsonParser
 import cn.mudlife.app.model.QzhqLoginData
@@ -46,12 +48,12 @@ object QzhqNetwork {
             try {
                 chain.proceed(chain.request()).also { response ->
                     if (!response.isSuccessful) cn.mudlife.app.utils.AppLogger.net(
-                        "后勤服务", response.code, android.os.SystemClock.elapsedRealtime() - started
+                        DiagnosticService.LOGISTICS, response.code, android.os.SystemClock.elapsedRealtime() - started
                     )
                 }
             } catch (e: java.io.IOException) {
                 if (!chain.call().isCanceled()) cn.mudlife.app.utils.AppLogger.net(
-                    "后勤服务", null, android.os.SystemClock.elapsedRealtime() - started
+                    DiagnosticService.LOGISTICS, null, android.os.SystemClock.elapsedRealtime() - started
                 )
                 throw e
             }
@@ -126,18 +128,20 @@ object QzhqNetwork {
             }
             QzhqResponse(errorCode, message, list)
         } catch (e: Exception) {
-            cn.mudlife.app.utils.AppLogger.e("QzhqNet", "parseList 数据解析异常", e)
+            cn.mudlife.app.utils.AppLogger.record(DiagnosticEvent.LOGISTICS_PARSE_FAILED, e)
             QzhqResponse(-1, "服务响应格式异常", emptyList())
         }
     }
 
     suspend fun login(phone: String, passwordRaw: String): QzhqResponse<QzhqLoginData> {
+        requireSessionStorage()
         val encrypted = MD5Utils.encryptPassword(passwordRaw)
         val json = apiService.login(phone, encrypted).awaitString()
         return saveLogin(json, phone)
     }
 
     suspend fun sendVerifyCode(phone: String): QzhqResponse<Unit> {
+        requireSessionStorage()
         val s = phone.take(3) + phone.takeLast(4) + "klcx"
         val secret = MD5Utils.md5(s).lowercase()
         val json = apiService.getVerifyCode(phone = phone, secret = secret, typeId = 3).awaitString()
@@ -145,12 +149,17 @@ object QzhqNetwork {
     }
 
     suspend fun smsLogin(phone: String, smsCode: String): QzhqResponse<QzhqLoginData> {
+        requireSessionStorage()
         val json = apiService.smsLogin(phone = phone, msg = smsCode).awaitString()
         return saveLogin(json, phone)
     }
 
-    private suspend fun saveLogin(json: String, phone: String): QzhqResponse<QzhqLoginData> {
+    private fun requireSessionStorage() {
         check(PrefsHelper.canStoreSessions) { "设备的安全存储不可用，请重启后重试" }
+    }
+
+    private suspend fun saveLogin(json: String, phone: String): QzhqResponse<QzhqLoginData> {
+        requireSessionStorage()
         val resp = parse(json, QzhqLoginData::class.java)
         if (resp.isSuccess) {
             val token = resp.data?.loginCode?.takeIf { it.isNotBlank() }

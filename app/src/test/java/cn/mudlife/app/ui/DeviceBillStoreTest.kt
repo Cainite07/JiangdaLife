@@ -27,7 +27,7 @@ class DeviceBillStoreTest {
         targets: suspend () -> List<UserProjectItem> = { projects }, initial: YearMonth = start,
         fetch: suspend (YearMonth, UserProjectItem) -> List<BillItem>) = DeviceBillStore(scope,
         identity = identity, ownerKey = { identity()[1] }, fetchProjects = targets, fetchBills = fetch,
-        archive = disk, now = { clock }, today = { end }, initialStart = { initial }, betweenMonths = 0, report = {})
+        archive = disk, now = { clock }, today = { end }, initialStart = { initial }, betweenMonths = 0, report = { _, _, _ -> })
 
     @Test fun emptyMonthsDoNotStopHistoryAndEachSuccessfulMonthIsSaved() = runBlocking {
         val disk = Disk(); val queried = mutableSetOf<YearMonth>()

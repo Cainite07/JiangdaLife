@@ -30,7 +30,7 @@ internal class DeviceBillStore(
     private val today: () -> YearMonth = YearMonth::now,
     private val initialStart: () -> YearMonth = { today().minusMonths(26) },
     private val betweenMonths: Long = 120L,
-    private val report: (String) -> Unit = { cn.mudlife.app.utils.AppLogger.i("DeviceBills", it) }
+    private val report: (YearMonth, Int, Boolean) -> Unit = cn.mudlife.app.utils.AppLogger::deviceBills
 ) {
     private val requests = AccountRequests(scope, identity)
     private var owner = emptyList<String>()
@@ -105,7 +105,7 @@ internal class DeviceBillStore(
             val value = CachedDeviceMonth(incoming.distinctBy { it.bill.id to it.bill.time }, now(), projectKey)
             request { archive?.saveMonth(diskOwner, month, value) }
             cached = cached + (month to value); records = records + (month to value.entries); errors = errors - month
-            report("$month: independent=${value.entries.size}, saved=${archive != null}")
+            report(month, value.entries.size, archive != null)
         } catch (e: CancellationException) { throw e }
         catch (e: Exception) {
             errors = errors + (month to "设备账单同步失败，已有记录已保留")

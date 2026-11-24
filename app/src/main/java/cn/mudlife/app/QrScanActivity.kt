@@ -57,7 +57,7 @@ import com.google.mlkit.vision.common.InputImage
 /**
  * 扫码绑定热水器。
  *
- * 趣智校园热水器上的二维码形如：KLCXKJ-Water,M,C47F0EDA85D8
+ * 设备二维码格式示例：KLCXKJ-Water,M,001122334455（虚构编号）。
  * 解析最后一个字段（冒号去掉后为 12 位十六进制）作为设备 snCode。
  *
  * 返回：RESULT_OK + extra "sn_code"

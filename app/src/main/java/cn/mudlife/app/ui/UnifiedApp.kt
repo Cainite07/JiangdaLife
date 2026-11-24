@@ -125,7 +125,11 @@ fun UnifiedApp(life: MainViewModel, campus: CampusViewModel) {
         } else if (campus.hasSession) campus.refresh()
     }
     val loginSchool = {
-        school.launch(Intent(activity, SchoolActivity::class.java))
+        if (campus.session.storageAvailable) {
+            school.launch(Intent(activity, SchoolActivity::class.java))
+        } else {
+            android.widget.Toast.makeText(activity, SCHOOL_STORAGE_UNAVAILABLE, android.widget.Toast.LENGTH_LONG).show()
+        }
     }
     val resetSchool = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         if (it.resultCode == Activity.RESULT_OK) {

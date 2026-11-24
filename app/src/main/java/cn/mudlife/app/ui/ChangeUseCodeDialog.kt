@@ -116,7 +116,7 @@ fun ChangeUseCodeDialog(
 }
 
 /**
- * 校验规则（严格对齐微信小程序前端逻辑）
+ * 后勤使用码的输入校验规则
  */
 private fun validateCode(newCode: String, confirmCode: String): String? {
     if (newCode.length < 5) return "使用码请设置为 5 位数"

@@ -9,7 +9,7 @@ import retrofit2.http.POST
 import retrofit2.http.Query
 
 /**
- * 微信小程序「趣智后勤热水」专线 API 服务契约
+ * 后勤热水服务接口
  */
 interface QzhqService {
 

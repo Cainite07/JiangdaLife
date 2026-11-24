@@ -48,6 +48,22 @@ data class LogEntry(
     }
 }
 
+internal enum class DiagnosticEvent(val level: LogLevel, val tag: String, val message: String) {
+    LOGISTICS_PARSE_FAILED(LogLevel.ERROR, "QzhqNet", "parseList 数据解析异常"),
+    PROJECT_ACCOUNTS_SYNCED(LogLevel.INFO, "Auth", "已成功同步多项目账户映射"),
+    PROJECT_ACCOUNTS_FAILED(LogLevel.WARN, "Auth", "拉取多项目列表失败"),
+    DEVICE_PROJECT_ACCOUNTS_SYNCED(LogLevel.INFO, "Shower", "开阀前补全多项目账户映射"),
+    DEVICE_START_REJECTED(LogLevel.ERROR, "Shower", "服务未接受开阀请求"),
+    DEVICE_START_UNCONFIRMED(LogLevel.ERROR, "Shower", "开阀确认失败"),
+    DEVICE_STOP_REJECTED(LogLevel.ERROR, "Shower", "关阀请求失败"),
+    DEVICE_STOP_UNCONFIRMED(LogLevel.ERROR, "Shower", "关水未确认"),
+    ACCOUNT_KICKED(LogLevel.ERROR, "Auth", "触发账号强制下线"),
+    ACCOUNT_HTTP_EXPIRED(LogLevel.ERROR, "Auth", "触发网络鉴权失效下线"),
+    USE_CODE_UNCONFIRMED(LogLevel.WARN, "UseCode", "服务端未回读到新使用码，保留候选码等待重试")
+}
+
+internal enum class DiagnosticService(val label: String) { DEVICE("设备服务"), LOGISTICS("后勤服务") }
+
 object AppLogger {
     private const val TAG = "Jiangda Life"
     private const val MAX_MEMORY_LOGS = 1000
@@ -83,32 +99,32 @@ object AppLogger {
         val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             try {
-                e("UncaughtCrash", "应用发生未捕获异常", throwable)
+                log(LogLevel.ERROR, "UncaughtCrash", "应用发生未捕获异常", throwable)
             } catch (_: Exception) {}
             defaultHandler?.uncaughtException(thread, throwable)
         }
     }
 
-    fun sys(tag: String, msg: String) = log(LogLevel.SYS, tag, msg)
-    fun i(tag: String, msg: String) = log(LogLevel.INFO, tag, msg)
-    fun d(tag: String, msg: String) = log(LogLevel.DEBUG, tag, msg)
-    fun w(tag: String, msg: String) = log(LogLevel.WARN, tag, msg)
-    fun e(tag: String, msg: String, tr: Throwable? = null) = log(LogLevel.ERROR, tag, msg, tr)
+    internal fun record(event: DiagnosticEvent, error: Throwable? = null) =
+        log(event.level, event.tag, event.message, error)
 
-    fun net(service: String, code: Int?, elapsedMs: Long) {
+    internal fun deviceBills(month: java.time.YearMonth, count: Int, saved: Boolean) =
+        log(LogLevel.INFO, "DeviceBills", "$month: independent=$count, saved=$saved")
+
+    internal fun net(service: DiagnosticService, code: Int?, elapsedMs: Long) {
         val result = code?.let { "HTTP $it" } ?: "连接失败"
-        log(LogLevel.NET, service, "$result · ${elapsedMs}ms")
+        log(LogLevel.NET, service.label, "$result · ${elapsedMs}ms")
     }
 
     @Synchronized
-    private fun log(level: LogLevel, tag: String, maskedMsg: String, tr: Throwable? = null) {
+    private fun log(level: LogLevel, tag: String, message: String, tr: Throwable? = null) {
         val stackTrace = tr?.let { error ->
             (listOf(error.javaClass.name) + error.stackTrace.take(12).map { "at $it" }).joinToString("\n")
         }
 
         // 核心降噪：相邻相同日志就地折叠计数，不浪费 1000 条内存槽位与磁盘 I/O
         val last = logList.lastOrNull()
-        if (last != null && last.level == level && last.tag == tag && last.message == maskedMsg && tr == null && last.stackTrace == null) {
+        if (last != null && last.level == level && last.tag == tag && last.message == message && tr == null && last.stackTrace == null) {
             last.repeatCount++
             last.timeMillis = System.currentTimeMillis()
             versionState = ++nextId
@@ -119,18 +135,18 @@ object AppLogger {
             id = nextId++,
             level = level,
             tag = tag,
-            message = maskedMsg,
+            message = message,
             stackTrace = stackTrace
         )
 
         // Android 原始 logcat 镜像
         when (level) {
-            LogLevel.SYS -> Log.i(TAG, "[$tag] $maskedMsg")
-            LogLevel.INFO -> Log.i(TAG, "[$tag] $maskedMsg")
-            LogLevel.DEBUG -> Log.d(TAG, "[$tag] $maskedMsg")
-            LogLevel.WARN -> Log.w(TAG, "[$tag] $maskedMsg")
-            LogLevel.ERROR -> Log.e(TAG, "[$tag] $maskedMsg" + (stackTrace?.let { "\n$it" } ?: ""))
-            LogLevel.NET -> Log.i(TAG, "[$tag] $maskedMsg")
+            LogLevel.SYS -> Log.i(TAG, "[$tag] $message")
+            LogLevel.INFO -> Log.i(TAG, "[$tag] $message")
+            LogLevel.DEBUG -> Log.d(TAG, "[$tag] $message")
+            LogLevel.WARN -> Log.w(TAG, "[$tag] $message")
+            LogLevel.ERROR -> Log.e(TAG, "[$tag] $message" + (stackTrace?.let { "\n$it" } ?: ""))
+            LogLevel.NET -> Log.i(TAG, "[$tag] $message")
         }
 
         // 环形内存缓冲
@@ -189,7 +205,7 @@ object AppLogger {
             output.use { out -> source.inputStream().use { it.copyTo(out) } }
             true
         } catch (e: Exception) {
-            e("ExportLog", "导出日志失败", e)
+            log(LogLevel.ERROR, "ExportLog", "导出日志失败", e)
             false
         }
     }

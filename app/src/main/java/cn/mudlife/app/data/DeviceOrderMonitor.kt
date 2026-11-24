@@ -15,7 +15,8 @@ internal suspend fun monitorDeviceOrder(
     current: () -> Boolean,
     query: suspend () -> BaseResponse<OrderStatus>,
     onOrder: (String) -> Unit,
-    onEnded: () -> Unit
+    onEnded: () -> Unit,
+    pause: suspend (Long) -> Unit = { delay(it) }
 ) {
     val period = when {
         !foreground -> 10_000L
@@ -27,7 +28,7 @@ internal suspend fun monitorDeviceOrder(
     val evidence = DeviceOrderEndEvidence()
 
     while (current()) {
-        delay(wait)
+        pause(wait)
         if (!current()) return
         val response = try {
             query()

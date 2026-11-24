@@ -41,11 +41,6 @@
         </activity>
 
         <activity
-            android:name=".CampusCardActivity"
-            android:exported="false"
-            android:windowSoftInputMode="adjustResize" />
-
-        <activity
             android:name=".QrScanActivity"
             android:exported="false"
             android:screenOrientation="portrait" />
