@@ -55,6 +55,8 @@ import cn.mudlife.app.utils.AccountGuideRun
 import cn.mudlife.app.utils.PrefsHelper
 import cn.mudlife.app.utils.HapticHelper
 import cn.mudlife.app.utils.UpdateManager
+import cn.mudlife.app.widget.DrinkingWaterWidget
+import cn.mudlife.app.widget.WaterWidgetControlService
 import cn.mudlife.campuscard.*
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
@@ -166,7 +168,17 @@ fun UnifiedApp(life: MainViewModel, campus: CampusViewModel) {
         }
         onDispose { lifecycle.removeObserver(observer); campus.pause() }
     }
-    LaunchedEffect(loggedIn, phone) { if (loggedIn) life.initManagers() }
+    LaunchedEffect(loggedIn, phone) {
+        if (loggedIn) life.initManagers()
+        DrinkingWaterWidget.refresh(activity)
+    }
+    LaunchedEffect(life.isStartingShower, life.isStopping, life.activeOrders.toList(), life.unverifiedOrders.toList()) {
+        DrinkingWaterWidget.refresh(activity)
+    }
+    val waterOrderRevision by WaterWidgetControlService.orderRevision.collectAsState()
+    LaunchedEffect(waterOrderRevision, foreground) {
+        if (loggedIn && foreground) life.reloadDeviceOrders()
+    }
     LaunchedEffect(campus.paymentNotice) { campus.paymentNotice?.let { snackbar.showSnackbar(it) } }
     // A restored task may still carry the old balance-detail route.
     val onCardPage = page == "card" || page == "balance"

@@ -10,9 +10,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import cn.mudlife.app.api.NetworkModule
 import cn.mudlife.app.api.closeOrderSafe
-import cn.mudlife.app.api.closeOrderResultSafe
 import cn.mudlife.app.api.downRateSafe
-import cn.mudlife.app.api.downRateResultSafe
 import cn.mudlife.app.api.getUserProjectsSafe
 import cn.mudlife.app.api.getDeviceInfoSafe
 import cn.mudlife.app.api.QzhqNetwork
@@ -35,6 +33,7 @@ import cn.mudlife.app.data.queryDeviceSettlement
 import cn.mudlife.app.model.verifyOrder
 import cn.mudlife.app.utils.PrefsHelper
 import kotlinx.coroutines.Job
+import cn.mudlife.app.data.DeviceCommands
 import kotlinx.coroutines.joinAll
 import cn.mudlife.app.utils.AccountRequests
 import kotlinx.coroutines.delay
@@ -56,6 +55,8 @@ class MainViewModel(
 
     var isShowering by mutableStateOf(false)
     var isStartingShower by mutableStateOf(false)
+    var isSwitchingWater by mutableStateOf(false)
+        private set
     var isStopping by mutableStateOf(false)
     var showerSnCode by mutableStateOf<String?>(null)
     var currentOrderNo by mutableStateOf<String?>(null)
@@ -207,7 +208,9 @@ class MainViewModel(
                         // Ignore results from a previous login or an order replaced while awaiting HTTP.
                         if (generation != accountGeneration) return@launch
                         if (order !in activeOrders && order !in unverifiedOrders) return@forEach
-                        if ((isStartingShower || isShowering) && showerSnCode == order.snCode) return@forEach
+                        if (PrefsHelper.getActiveOrders().firstOrNull { it.snCode == order.snCode } != order) return@forEach
+                        if (DeviceCommands.isBusy(order.snCode) ||
+                            (isStartingShower || isShowering) && showerSnCode == order.snCode) return@forEach
                         when (verifyOrder(q, order.orderNo)) {
                             OrderVerification.ACTIVE -> {
                                 unverifiedOrders.remove(order)
@@ -215,7 +218,7 @@ class MainViewModel(
                                     activeOrders.add(order.copy(orderNo = q.data?.orderNo ?: order.orderNo))
                                 }
                                 activeDeviceSnCodes.add(order.snCode)
-                                saveOrders()
+                                saveOrder(order.snCode)
                             }
                             OrderVerification.ENDED -> clearActiveRecord(order.snCode)
                             OrderVerification.UNKNOWN -> Unit
@@ -309,7 +312,7 @@ class MainViewModel(
         try {
             val pid = overrideProjectId ?: selectedDevice?.projectId?.toString()?.takeIf { it.isNotBlank() && it != "0" && it != "null" }
             val q = NetworkModule.apiService.queryUsingSafe(snCode = snCode, auth = NetworkModule.authFields(overrideProjectId = pid))
-            if (owner != PrefsHelper.loginCode || generation != accountGeneration || selectedDevice?.snCode != snCode) return
+            if (owner != PrefsHelper.loginCode || generation != accountGeneration || selectedDevice?.snCode != snCode || DeviceCommands.isBusy(snCode)) return
             if (q.errorCode == 307 || (q.success && q.data?.orderNo != null)) {
                 activeDeviceSnCodes.add(snCode)
                 isOwner = q.data?.isOwner == true
@@ -319,7 +322,7 @@ class MainViewModel(
                     val deviceInfo = selectedDevice
                     if (deviceInfo != null) {
                         activeOrders.add(ActiveOrder(snCode, orderNo, deviceInfo.displayName, deviceInfo.macAddress, deviceInfo.typeEmoji, deviceInfo.withholdMoney, projectId = pid))
-                        saveOrders()
+                        saveOrder(snCode)
                     }
                 }
             } else isOwner = true
@@ -345,18 +348,26 @@ class MainViewModel(
     }
 
     fun startRecentDevice(dev: cn.mudlife.app.model.RecentDevice) {
-        if (isStartingShower || isShowering || isStopping) return
+        if (kickedOut || isStartingShower || isShowering || isStopping ||
+            deviceLookupJob?.isActive == true || startDeviceJob?.isActive == true) return
         lastDeviceSnCode = dev.snCode
         lastDeviceMac = dev.mac
         lastDeviceName = dev.name
         lastDeviceEmoji = dev.emoji
-        deviceLookupJob?.cancel()
         deviceLookupJob = lifeRequests.launch {
             try {
-                val queryKey = if (dev.mac.isNotEmpty()) dev.mac else dev.snCode
-                val resp = request { NetworkModule.apiService.getDeviceInfoSafe(queryKey) }
+                val resp = request {
+                    val exact = NetworkModule.apiService.getDeviceInfoSafe(dev.snCode)
+                    if ((!exact.success || exact.data?.snCode != dev.snCode) && dev.mac.isNotBlank() && dev.mac != dev.snCode)
+                        NetworkModule.apiService.getDeviceInfoSafe(dev.mac)
+                    else exact
+                }
                 if (resp.success && resp.data != null && resp.data.snCode == dev.snCode) {
                     val info = resp.data
+                    if (!info.isDrinkingWater) {
+                        toastMessage = "无法确认是饮水机，请重新扫码"
+                        return@launch
+                    }
                     selectedDevice = if (info.projectId == null && dev.projectId != null) {
                         info.copy(projectId = dev.projectId.toIntOrNull())
                     } else info
@@ -370,9 +381,8 @@ class MainViewModel(
         }
     }
 
-    fun pinRecentDrinkingDevice(snCode: String) {
-        PrefsHelper.pinRecentDevice(snCode)
-        recentDevices = PrefsHelper.getRecentDevices()
+    internal fun moveRecentDrinkingDevice(snCode: String, targetSnCode: String) {
+        recentDevices = PrefsHelper.moveRecentDevice(snCode, targetSnCode)
     }
 
     fun deleteRecentDrinkingDevice(snCode: String) {
@@ -382,7 +392,7 @@ class MainViewModel(
 
     // ════════════════════════════════════════════
     fun startShower(resuming: ActiveOrder? = null, allowNewOrder: Boolean = resuming == null) {
-        if (kickedOut || isStartingShower || isShowering || isStopping) return
+        if (kickedOut || isStartingShower || isShowering || isStopping || startDeviceJob?.isActive == true) return
         val device = selectedDevice ?: return
         val snCode = device.snCode
         if (snCode.isNullOrBlank()) {
@@ -391,8 +401,15 @@ class MainViewModel(
             return
         }
 
+        if (!DeviceCommands.acquire(snCode)) { toastMessage = "该设备正在处理，请稍候"; return }
         isStartingShower = true
+        isSwitchingWater = false
         val session = ++deviceSessionGeneration
+        val waterOwner = PrefsHelper.waterWidgetOwner
+        val login = PrefsHelper.loginCode
+        val canSwitch = { device.isDrinkingWater && allowNewOrder && isStartingShower &&
+            deviceSessionGeneration == session && PrefsHelper.waterWidgetOwner == waterOwner && PrefsHelper.loginCode == login }
+        val showSwitch = { isSwitchingWater = true }
         settlementJob?.cancel()
         startDeviceJob = viewModelScope.launch {
             try {
@@ -417,8 +434,11 @@ class MainViewModel(
                 }
                 val devAuth = NetworkModule.authFields(overrideProjectId = devPid)
 
-                val existing = deviceService.queryUsingSafe(snCode = snCode, auth = devAuth)
-                val cachedOrder = resuming ?: (activeOrders + unverifiedOrders).find { it.snCode == snCode }
+                val existing = DeviceCommands.afterWaterStop(waterOwner, snCode, canSwitch, showSwitch) {
+                    deviceService.queryUsingSafe(snCode = snCode, auth = devAuth)
+                }
+                if (isSwitchingWater && !isStartingShower) return@launch
+                val cachedOrder = resuming ?: PrefsHelper.getActiveOrders().find { it.snCode == snCode }
                 val status = verifyOrder(existing, cachedOrder?.orderNo)
                 if (!allowNewOrder && status == OrderVerification.ENDED) {
                     cleanInactiveOrders()
@@ -441,7 +461,7 @@ class MainViewModel(
                         activeOrders.add(ActiveOrder(snCode, oNo.orEmpty(), device.displayName, device.macAddress, device.typeEmoji, device.withholdMoney, projectId = devPid))
                     }
                     if (oNo != null) updateOrderNo(snCode, oNo)
-                    saveOrders()
+                    saveOrder(snCode)
                     // 恢复订单：从持久化恢复自动关停剩余时间
                     val remain = PrefsHelper.getAutoDisconRemain(snCode)
                     enterShowerState(oNo, snCode, device, remain)
@@ -461,13 +481,17 @@ class MainViewModel(
                 PrefsHelper.clearAutoDiscon(snCode)
                 unverifiedOrders.removeAll { it.snCode == snCode }
                 unverifiedOrders.add(pending)
-                if (!saveOrders()) {
+                if (!saveOrder(snCode)) {
                     unverifiedOrders.remove(pending)
                     toastMessage = "无法保存订单，请检查存储后重试"
                     return@launch
                 }
-                val resp = deviceService.downRateSafe(snCode = snCode, auth = devAuth)
+                val resp = DeviceCommands.afterWaterStop(waterOwner, snCode, canSwitch, showSwitch) {
+                    deviceService.downRateSafe(snCode = snCode, auth = devAuth)
+                }
                 if (!resp.success) {
+                    if (DeviceCommands.isUnfinishedWaterOrder(resp)) clearActiveRecord(snCode, onlyIfCurrent = true)
+                    if (isSwitchingWater && !isStartingShower) return@launch
                     val msg = resp.displayMessage ?: "开始失败"
                     showerError = msg
                     toastMessage = "出水失败: $msg"
@@ -475,30 +499,8 @@ class MainViewModel(
                     checkKick(resp.displayMessage); return@launch
                 }
 
-                // 开阀确认：轮询 downRateResult，确认开阀成功
-                var openedOrderNo = resp.data?.orderNo?.takeIf(String::isNotBlank)
-                var opened = false
-                var autoDiscon = resp.data?.autoDisConTime ?: 0
-                for (i in 0..8) {
-                    delay(700)
-                    try {
-                        val r = deviceService.downRateResultSafe(snCode = snCode, auth = devAuth)
-                        val d = r.data
-                        if (r.success && d != null && (d.snCode.isNullOrBlank() || d.snCode == snCode) &&
-                            (openedOrderNo == null || d.orderNo.isNullOrBlank() || d.orderNo == openedOrderNo) &&
-                            (d.state == 0 || d.result == 0 || !d.orderNo.isNullOrBlank())) {
-                            openedOrderNo = d.orderNo?.takeIf(String::isNotBlank) ?: openedOrderNo
-                            opened = true
-                            val autoTime = d?.autoDisConTime
-                            if (autoTime != null && autoTime > 0) {
-                                autoDiscon = autoTime
-                            }
-                            break
-                        }
-                    } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) {}
-                }
-
-                if (!opened) {
+                val opened = DeviceCommands.confirmOpen(deviceService, snCode, devAuth, resp.data)
+                if (opened == null) {
                     // 开阀确认失败，退出并提示
                     showerError = "开阀未确认成功，请确认设备是否已开启"
                     toastMessage = "开阀未确认，请检查水机或网络重试"
@@ -508,9 +510,9 @@ class MainViewModel(
 
                 unverifiedOrders.remove(pending)
                 activeOrders.removeAll { it.snCode == snCode }
-                activeOrders.add(pending.copy(orderNo = openedOrderNo.orEmpty()))
-                saveOrders()
-                enterShowerState(openedOrderNo, snCode, device, autoDiscon)
+                activeOrders.add(pending.copy(orderNo = opened.orderNo.orEmpty()))
+                saveOrder(snCode)
+                enterShowerState(opened.orderNo, snCode, device, opened.autoDisconnectSeconds)
 
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -521,15 +523,22 @@ class MainViewModel(
                     showerError = msg
                     toastMessage = "出水异常: $msg"
                 }
-            } finally { if (deviceSessionGeneration == session) isStartingShower = false }
-        }
+            } finally {
+                if (deviceSessionGeneration == session) {
+                    isStartingShower = false
+                    isSwitchingWater = false
+                }
+            }
+        }.also { it.invokeOnCompletion { DeviceCommands.release(snCode) } }
     }
 
     private fun updateOrderNo(snCode: String, orderNo: String) {
         val i = activeOrders.indexOfFirst { it.snCode == snCode }
-        if (i >= 0 && orderNo.isNotEmpty()) {
+        if (i >= 0 && orderNo.isNotEmpty() &&
+            PrefsHelper.getActiveOrders().firstOrNull { it.snCode == snCode } == activeOrders[i]
+        ) {
             activeOrders[i] = activeOrders[i].copy(orderNo = orderNo)
-            saveOrders()
+            saveOrder(snCode)
         }
     }
 
@@ -636,10 +645,7 @@ class MainViewModel(
         val project = order?.projectId ?: sessionDevice?.projectId?.toString()?.takeIf { it != "0" }
         val generation = deviceSessionGeneration
         // The device is already stopped. Dismissing the receipt must not own cleanup.
-        clearActiveRecord(snCode)
-        // 立即清除持久化的开阀时间戳与倒计时，防止用户不点弹窗确认直接退出时残留脏时间戳
-        PrefsHelper.setStartedAt(snCode, 0L)
-        PrefsHelper.clearAutoDiscon(snCode)
+        clearActiveRecord(snCode, onlyIfCurrent = true)
 
         settlementJob = viewModelScope.launch {
             val amount = queryDeviceSettlement(closingOrderNo, project, startTime)
@@ -654,7 +660,8 @@ class MainViewModel(
     fun confirmAutoClose() {
         showAutoCloseDialog = false
         val snCode = showerSnCode ?: ""
-        finishShower(snCode, null)
+        finishShower(snCode, null, alreadyClosed = true)
+        reloadDeviceOrders()
     }
 
     // ════════════════════════════════════════════
@@ -663,6 +670,7 @@ class MainViewModel(
         val snCode = showerSnCode ?: ""
         val oNo = currentOrderNo.orEmpty()
 
+        if (!DeviceCommands.acquire(snCode)) { toastMessage = "该设备正在处理，请稍候"; return }
         isStopping = true
         probeJob?.cancel()
         val session = deviceSessionGeneration
@@ -703,39 +711,12 @@ class MainViewModel(
                     }
                 }
 
-                // 2. 轮询确认关阀结果（最多 5 次，间隔 1 秒）
-                var closedOk = false
-                for (i in 0 until 5) {
-                    delay(1000)
-                    try {
-                        val r = deviceService.closeOrderResultSafe(snCode = snCode, orderNo = orderNo, auth = devAuth)
-                        if (r.success) {
-                            val d = r.data
-                            val closed = d != null && (d.orderNo.isNullOrBlank() || d.orderNo == orderNo) &&
-                                (d.deviceSnCode.isNullOrBlank() || d.deviceSnCode == snCode) &&
-                                (d.state == 0 || d.status == 0)
-                            if (closed) { closedOk = true; break }
-                        } else {
-                            checkKick(r.displayMessage)
-                        }
-                    } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) {}
-                }
-
-                // 兜底探活：若 5 次轮询仍未返回关阀状态，调用 queryUsingSafe 核验水机是否已停
-                if (!closedOk) {
-                    try {
-                        val q = deviceService.queryUsingSafe(snCode = snCode, auth = devAuth)
-                        if (verifyOrder(q, orderNo) == OrderVerification.ENDED) {
-                            delay(500)
-                            val confirmation = deviceService.queryUsingSafe(snCode = snCode, auth = devAuth)
-                            closedOk = verifyOrder(confirmation, orderNo) == OrderVerification.ENDED
-                        }
-                    } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) {}
-                }
+                val closedOk = DeviceCommands.confirmClose(deviceService, snCode, orderNo, devAuth, ::checkKick)
 
                 // 3. 关阀确认成功后：先立即退出（不阻塞），后台异步等账单结算后弹金额
                 if (closedOk) {
                     val startTime = PrefsHelper.getStartedAt(snCode)  // 开阀时间戳，未开始时为 0
+                    if (sessionDevice?.isDrinkingWater == true) DeviceCommands.recordWaterStop(PrefsHelper.waterWidgetOwner, snCode)
                     finishShower(snCode, null)
                     settlementJob = viewModelScope.launch {
                         val amount = queryDeviceSettlement(orderNo, devPid, startTime)
@@ -761,16 +742,15 @@ class MainViewModel(
                     sessionDevice?.let { monitorDevice(snCode, it) }
                 }
             }
-        }
+        }.also { it.invokeOnCompletion { DeviceCommands.release(snCode) } }
     }
 
     /** 完成停止流程：退出洗澡界面，清理状态，显示结算结果 */
-    private fun finishShower(snCode: String, consumed: Double?) {
+    private fun finishShower(snCode: String, consumed: Double?, alreadyClosed: Boolean = false) {
         isShowering = false
         isStopping = false
 
-        // 从活跃列表移除
-        clearActiveRecord(snCode)
+        if (!alreadyClosed) clearActiveRecord(snCode, onlyIfCurrent = true)
 
         if (consumed != null) {
             toastMessage = "已停止，本次消费 ¥%.2f".format(consumed)
@@ -781,8 +761,6 @@ class MainViewModel(
         currentOrderNo = null
         showerElapsedSec = 0
         autoDisConSec = 0
-        PrefsHelper.setStartedAt(snCode, 0L) // 重置该设备计时器
-        PrefsHelper.clearAutoDiscon(snCode)  // 清除自动关停倒计时
         showerSnCode = null; sessionDevice = null; timerJob?.cancel(); probeJob?.cancel()
     }
 
@@ -795,6 +773,7 @@ class MainViewModel(
         stopDeviceJob?.cancel()
         settlementJob?.cancel()
         isStartingShower = false
+        isSwitchingWater = false
         isStopping = false
         showAutoCloseDialog = false
         lifeRequests.invalidate()
@@ -830,19 +809,41 @@ class MainViewModel(
         walletInfo = null
     }
 
-    private fun clearActiveRecord(snCode: String) {
+    private fun clearActiveRecord(snCode: String, onlyIfCurrent: Boolean = false) {
+        val stored = PrefsHelper.getActiveOrders().firstOrNull { it.snCode == snCode }
+        val local = activeOrders.find { it.snCode == snCode } ?: unverifiedOrders.find { it.snCode == snCode }
         activeOrders.removeAll { it.snCode == snCode }
         unverifiedOrders.removeAll { it.snCode == snCode }
         activeDeviceSnCodes.remove(snCode)
+        if (onlyIfCurrent && stored != null && stored != local) return
         PrefsHelper.setStartedAt(snCode, 0L)
         PrefsHelper.clearAutoDiscon(snCode)
-        saveOrders()
+        saveOrder(snCode)
     }
 
-    private fun saveOrders(): Boolean {
-        val confirmedDevices = activeOrders.map { it.snCode }.toSet()
-        unverifiedOrders.removeAll { it.snCode in confirmedDevices }
-        return PrefsHelper.saveActiveOrders((activeOrders.toList() + unverifiedOrders.toList()).distinctBy { it.snCode })
+    private fun saveOrder(snCode: String): Boolean {
+        val confirmed = activeOrders.find { it.snCode == snCode }
+        if (confirmed != null) unverifiedOrders.removeAll { it.snCode == snCode }
+        return PrefsHelper.writeDeviceOrder(snCode, confirmed ?: unverifiedOrders.find { it.snCode == snCode })
+    }
+
+    internal fun reloadDeviceOrders() {
+        if (!managersInitialized) return
+        val saved = PrefsHelper.getActiveOrders().associateBy { it.snCode }
+        val current = showerSnCode
+        if (isShowering && !isStopping && !showAutoCloseDialog && current != null) {
+            val local = activeOrders.find { it.snCode == current }
+            if (saved[current] != local || local == null) {
+                onAutoClose(current)
+                return
+            }
+        }
+        activeOrders.removeAll { it.snCode != current && saved[it.snCode] != it }
+        unverifiedOrders.removeAll { it.snCode != current && saved[it.snCode] != it }
+        val known = (activeOrders + unverifiedOrders).map { it.snCode }.toSet()
+        unverifiedOrders.addAll(saved.values.filter { it.snCode !in known })
+        activeDeviceSnCodes.retainAll(saved.keys)
+        if (unverifiedOrders.isNotEmpty()) cleanInactiveOrders()
     }
 
     fun isDeviceActive(snCode: String) = snCode in activeDeviceSnCodes

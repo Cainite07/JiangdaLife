@@ -64,6 +64,8 @@ internal enum class DiagnosticEvent(val level: LogLevel, val tag: String, val me
 
 internal enum class DiagnosticService(val label: String) { DEVICE("设备服务"), LOGISTICS("后勤服务") }
 
+internal enum class WidgetStopStage { SENT, ACCEPTED, CONFIRMED, UNCONFIRMED }
+
 object AppLogger {
     private const val TAG = "Jiangda Life"
     private const val MAX_MEMORY_LOGS = 1000
@@ -115,6 +117,9 @@ object AppLogger {
         val result = code?.let { "HTTP $it" } ?: "连接失败"
         log(LogLevel.NET, service.label, "$result · ${elapsedMs}ms")
     }
+
+    internal fun waterWidgetStop(stage: WidgetStopStage, elapsedMs: Long) =
+        log(LogLevel.INFO, "WaterWidget", "关水 ${stage.name} · ${elapsedMs}ms")
 
     @Synchronized
     private fun log(level: LogLevel, tag: String, message: String, tr: Throwable? = null) {

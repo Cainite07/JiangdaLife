@@ -3,8 +3,9 @@
     android:initialLayout="@layout/today_timetable_widget"
     android:previewLayout="@layout/today_timetable_preview"
     android:description="@string/timetable_widget_description"
-    android:minWidth="220dp" android:minHeight="110dp"
-    android:minResizeWidth="175dp" android:minResizeHeight="90dp"
-    android:targetCellWidth="4" android:targetCellHeight="2"
+    android:minWidth="108dp" android:minHeight="104dp"
+    android:minResizeWidth="36dp" android:minResizeHeight="35dp"
+    android:maxResizeWidth="156dp" android:maxResizeHeight="176dp"
+    android:targetCellWidth="2" android:targetCellHeight="2"
     android:resizeMode="horizontal|vertical"
     android:updatePeriodMillis="1800000" android:widgetCategory="home_screen" />

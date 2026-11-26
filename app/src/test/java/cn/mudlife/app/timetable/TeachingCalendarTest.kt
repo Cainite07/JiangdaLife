@@ -163,4 +163,29 @@ class TeachingCalendarTest {
         assertEquals(3, tall.visibleRows)
         assertEquals(0, tall.remainingRows)
     }
+
+    @Test fun compactDesktopAgendaFollowsTheCurrentAndNextClass() {
+        val date = LocalDate.of(2026, 11, 9)
+        val rows = listOf(
+            SavedCourse("a", TimetableCourse("上午课", 1, 3, 4, "每周", "三江楼")),
+            SavedCourse("b", TimetableCourse("下午课", 1, 5, 6, "每周", "三山楼"))
+        )
+        val today = TodayAgenda.forDay(date, calendar, rows) { UjsTimetable.periods(date, it) }
+        assertEquals("上午课", today.currentOrNext(LocalTime.of(9, 0))?.name)
+        assertEquals("上午课", today.currentOrNext(LocalTime.of(11, 30))?.name)
+        assertEquals("下午课", today.currentOrNext(LocalTime.of(11, 50))?.name)
+        assertNull(today.currentOrNext(LocalTime.of(23, 0)))
+        val unconfirmed = TodayAgenda.forDay(date, calendar, rows) { emptyList() }
+        assertEquals("3–4节", unconfirmed.currentOrNext(LocalTime.NOON)?.timeLabel)
+    }
+    @Test fun widgetHidesOnlyCompletedClassesAtTheEndBoundary() {
+        val end = LocalTime.of(11, 40)
+        val morning = AgendaItem("传热学", "3–4节", "", end = end)
+        val upcoming = AgendaItem("实验", "7节", "", end = LocalTime.of(17, 0))
+        val uncertain = AgendaItem("待确认", "9节", "")
+        val day = TodayAgenda("周四", "今天没有安排课程", listOf(morning, upcoming, uncertain))
+        assertEquals(day.items, day.remaining(end.minusSeconds(1)).items)
+        assertEquals(listOf(upcoming, uncertain), day.remaining(end).items)
+        assertEquals("今日课程已结束", day.copy(items = listOf(morning)).remaining(end).message)
+    }
 }

@@ -4,9 +4,12 @@ import cn.mudlife.app.model.BaseResponse
 import cn.mudlife.app.model.BillDTO
 import cn.mudlife.app.model.BillItem
 import cn.mudlife.app.model.OrderStatus
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Assert.assertFalse
 import org.junit.Test
 import java.time.Instant
 import java.time.YearMonth
@@ -56,5 +59,50 @@ class DeviceOrderFlowTest {
         )
         assertNull(amount)
         assertEquals(listOf(2_000L, 4_000L, 6_000L, 8_000L, 10_000L), waits)
+    }
+    @Test fun fastStopStatusDoesNotWaitForTheResultEndpoint() = runBlocking {
+        var submitted = 0
+        var cancelled = false
+        assertTrue(firstCloseConfirmation(
+            result = {
+                submitted++
+                try { awaitCancellation() } finally { cancelled = true }
+            },
+            status = { assertEquals(1, submitted); true }
+        ))
+        assertTrue(cancelled)
+        assertEquals(1, submitted)
+    }
+
+    @Test fun anUnavailableStatusDoesNotOverrideTheResultEndpoint() = runBlocking {
+        assertTrue(firstCloseConfirmation(result = { true }, status = { false }))
+        assertFalse(firstCloseConfirmation(result = { false }, status = { false }))
+    }
+    @Test fun waterSwitchWaitsForAnExplicitlyRejectedOrderThenStartsOnce() = runBlocking {
+        val waits = mutableListOf<Long>()
+        var sends = 0
+        val result = DeviceCommands.retryUnfinishedWaterOrder(canWait = { true }, wait = { waits += it }) {
+            if (++sends <= 2) BaseResponse<Unit>(false, null, 98, "存在未完成的订单")
+            else BaseResponse(true, Unit)
+        }
+        assertTrue(result.success)
+        assertEquals(listOf(650L, 650L), waits)
+        assertEquals(3, sends)
+    }
+
+    @Test fun waterSwitchDoesNotRetryAnUnknownResultOrARequestCancelledDuringTheWait() = runBlocking {
+        var sends = 0
+        val unknown = BaseResponse<Unit>(false, null, -1, "服务响应格式异常")
+        assertEquals(unknown, DeviceCommands.retryUnfinishedWaterOrder(canWait = { true }, wait = {
+            throw AssertionError("Unknown responses must never retrigger water")
+        }) { sends++; unknown })
+        assertEquals(1, sends)
+
+        var waiting = true
+        val rejected = BaseResponse<Unit>(false, null, 98, "存在未完成的订单")
+        assertEquals(rejected, DeviceCommands.retryUnfinishedWaterOrder(
+            canWait = { waiting }, wait = { waiting = false }
+        ) { sends++; rejected })
+        assertEquals(2, sends)
     }
 }

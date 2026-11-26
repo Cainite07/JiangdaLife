@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="vertical" android:padding="5dp" android:background="@drawable/water_widget_background">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
+        android:orientation="horizontal" android:gravity="center_vertical"
+        android:paddingStart="9dp" android:paddingEnd="7dp"
+        android:background="@drawable/water_widget_tile" android:foreground="@drawable/water_widget_press">
+        <ImageView android:layout_width="17dp" android:layout_height="17dp"
+            android:layout_marginEnd="7dp" android:src="@drawable/ic_widget_water_cold"
+            android:importantForAccessibility="no" />
+        <TextView style="@style/TimetableWidgetHeading"
+            android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+            android:gravity="start" android:textSize="13sp" android:text="冷水" />
+        <TextView style="@style/TimetableWidgetHeading"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:minWidth="47dp" android:paddingHorizontal="6dp" android:paddingVertical="4dp"
+            android:background="@drawable/water_widget_action" android:textSize="12sp" android:text="出水" />
+    </LinearLayout>
+    <LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
+        android:orientation="horizontal" android:gravity="center_vertical"
+        android:paddingStart="9dp" android:paddingEnd="7dp"
+        android:background="@drawable/water_widget_tile" android:foreground="@drawable/water_widget_press">
+        <ImageView android:layout_width="17dp" android:layout_height="17dp"
+            android:layout_marginEnd="7dp" android:src="@drawable/ic_widget_water_hot"
+            android:importantForAccessibility="no" />
+        <TextView style="@style/TimetableWidgetHeading"
+            android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+            android:gravity="start" android:textSize="13sp" android:text="热水" />
+        <TextView style="@style/TimetableWidgetHeading"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:minWidth="47dp" android:paddingHorizontal="6dp" android:paddingVertical="4dp"
+            android:background="@drawable/water_widget_action" android:textSize="12sp" android:text="出水" />
+    </LinearLayout>
+</LinearLayout>

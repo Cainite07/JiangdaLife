@@ -3,12 +3,6 @@ package cn.mudlife.app.ui
 import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.Spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
@@ -16,17 +10,16 @@ import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.ExperimentalMaterialApi
 import androidx.compose.material.icons.outlined.Shower
 import androidx.compose.material.icons.outlined.Key
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.outlined.QrCodeScanner
-import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.WaterDrop
 import androidx.compose.material.pullrefresh.PullRefreshIndicator
 import androidx.compose.material.pullrefresh.pullRefresh
@@ -38,23 +31,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlin.math.roundToInt
 import androidx.lifecycle.viewmodel.compose.viewModel
 import cn.mudlife.app.QrScanActivity
 import cn.mudlife.app.ui.theme.paperBackground
 import cn.mudlife.app.ui.theme.AppColors
 import cn.mudlife.app.utils.HapticHelper
-import cn.mudlife.app.utils.PrefsHelper
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterialApi::class)
 @Composable
@@ -91,6 +78,7 @@ fun MainScreen(
         viewModel.initManagers()
     }
 
+    val homeListState = rememberLazyListState()
     val pullRefreshing = viewModel.isRefreshing
     val pullState = rememberPullRefreshState(
         refreshing = pullRefreshing,
@@ -122,6 +110,7 @@ fun MainScreen(
                     start = safeArea.calculateStartPadding(direction), end = safeArea.calculateEndPadding(direction)
                 )) {
                     LazyColumn(
+                        state = homeListState,
                         modifier = Modifier.fillMaxSize().pullRefresh(pullState).padding(horizontal = 22.dp),
                         contentPadding = PaddingValues(top = safeArea.calculateTopPadding(),
                             bottom = 24.dp + safeArea.calculateBottomPadding()),
@@ -173,14 +162,7 @@ fun MainScreen(
                                     color = AppColors.TextPrimary)
                             }
                             item {
-                                Surface(color = AppColors.Card, shape = RoundedCornerShape(22.dp)) {
-                                    Column(Modifier.padding(horizontal = 16.dp, vertical = 3.dp)) {
-                                        viewModel.recentDevices.forEachIndexed { index, dev ->
-                                            key(dev.snCode) { RecentDrinkingDeviceCard(dev, viewModel) }
-                                            if (index < viewModel.recentDevices.lastIndex) HorizontalDivider(color = AppColors.Border.copy(alpha = .5f))
-                                        }
-                                    }
-                                }
+                                RecentDrinkingDevices(viewModel, homeListState)
                             }
                         }
 
@@ -233,7 +215,8 @@ fun MainScreen(
                     verticalAlignment = Alignment.CenterVertically) {
                     CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.5.dp, color = AppColors.Accent)
                     Spacer(Modifier.width(12.dp))
-                    Text("正在确认设备是否开启，请稍候", color = AppColors.TextSecondary)
+                    Text(if (viewModel.isSwitchingWater) "上一单正在收尾，完成后自动出水" else "正在确认设备是否开启，请稍候",
+                        color = AppColors.TextSecondary)
                 }
             },
             confirmButton = {},
@@ -325,28 +308,6 @@ private fun ActiveOrderCard(order: cn.mudlife.app.model.ActiveOrder, viewModel: 
                 colors = ButtonDefaults.buttonColors(containerColor = AppColors.Warning)) { Text("查看", color = AppColors.OnAccent) }
         }
     }
-}
-
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
-@Composable
-private fun RecentDrinkingDeviceCard(device: cn.mudlife.app.model.RecentDevice, viewModel: MainViewModel) {
-    var remove by remember { mutableStateOf(false) }
-    val color = if (device.isHot) AppColors.Hot else AppColors.Accent
-    Row(Modifier.fillMaxWidth().combinedClickable(onClick = {}, onLongClick = { remove = true }).padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(36.dp).clip(RoundedCornerShape(12.dp)).background(color.copy(alpha = .09f)), contentAlignment = Alignment.Center) {
-            Icon(deviceSymbol(if (device.isHot) "♨️" else "❄️"), null, Modifier.size(20.dp), tint = color)
-        }
-        Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
-            Text(device.cleanName, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = AppColors.TextPrimary, maxLines = 2)
-            val sn = if (device.snCode.contains(",")) device.snCode.substringAfterLast(",") else device.snCode.takeLast(8)
-            Text("编号 $sn", fontSize = 12.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(top = 3.dp))
-        }
-        OutlinedButton(onClick = { viewModel.startRecentDevice(device) }, shape = RoundedCornerShape(24.dp),
-            border = BorderStroke(1.dp, AppColors.Border), contentPadding = PaddingValues(horizontal = 15.dp)) { Text("出水", fontSize = 13.sp) }
-    }
-    if (remove) AlertDialog(onDismissRequest = { remove = false }, title = { Text("移除常用设备？") },
-        text = { Text(device.cleanName) }, confirmButton = { TextButton(onClick = { viewModel.deleteRecentDrinkingDevice(device.snCode); remove = false }) { Text("移除") } },
-        dismissButton = { TextButton(onClick = { remove = false }) { Text("取消") } })
 }
 
 @Composable

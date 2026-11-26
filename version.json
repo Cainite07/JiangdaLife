@@ -1,11 +1,11 @@
 {
-  "versionCode": 46,
-  "versionName": "1.5.5",
-  "releaseDate": "2026-11-22",
-  "title": "江大生活 · Jiangda Life v1.5.5",
-  "changelog": "· 全部月份支持查看指定分类的支出合计。月报保留每日支出柱状图，并精简账单入口。\n· 新增五套亮暗配对的主题色。启动引导使用统一的账号卡片，关于页显示当前版本与新版本提醒。\n· 扫码出水新增取景框和手电筒。退出教务同步页面时保存当前网页 Cookie。\n· 收紧网页资源缓存的回收阈值，并限制待安装更新包的累积。",
-  "downloadUrl": "https://github.com/Cainite07/JiangdaLife/releases/download/v1.5.5/JiangdaLife-1.5.5.apk",
+  "versionCode": 47,
+  "versionName": "1.5.6",
+  "releaseDate": "2026-11-27",
+  "title": "江大生活 · Jiangda Life v1.5.6",
+  "changelog": "· 桌面新增「饮水机」小组件，可分别开启冷水和热水，也可直接关水并查看状态。\n· 「今日课表」小组件支持在桌面调整尺寸，下课后会收起已结束的课程。\n· 首页常用饮水机支持长按拖动排序、左滑删除。关闭冷水或热水后，可直接选择另一种水温，应用会等待上一笔订单结束。\n· 改善应用重新打开后对未结束设备订单的识别。",
+  "downloadUrl": "https://github.com/Cainite07/JiangdaLife/releases/download/v1.5.6/JiangdaLife-1.5.6.apk",
   "mirrors": [
-    "https://gitee.com/cainite/JiangdaLife/releases/download/v1.5.5/JiangdaLife-1.5.5.apk"
+    "https://gitee.com/cainite/JiangdaLife/releases/download/v1.5.6/JiangdaLife-1.5.6.apk"
   ]
 }

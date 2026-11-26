@@ -4,7 +4,7 @@
 
 <h1 align="center">江大生活 · Jiangda Life</h1>
 <p align="center"><b>校园日常，放在一起。</b><br>江苏大学一卡通 · 本科教务课表 · 趣智校园 · 趣智后勤热水</p>
-<p align="center">v1.5.5 &nbsp; · &nbsp; Android 8.0+ &nbsp; · &nbsp; Kotlin / Jetpack Compose</p>
+<p align="center">v1.5.6 &nbsp; · &nbsp; Android 8.0+ &nbsp; · &nbsp; Kotlin / Jetpack Compose</p>
 
 <p align="center">
   <a href="https://gitee.com/cainite/JiangdaLife/releases"><b>Gitee 国内下载</b></a> &emsp;

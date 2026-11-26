@@ -7,6 +7,7 @@ import androidx.security.crypto.MasterKey
 import com.google.gson.Gson
 import com.google.gson.JsonParser
 import cn.mudlife.app.model.ActiveOrder
+import cn.mudlife.app.model.RecentDevice
 import cn.mudlife.app.ui.theme.AppAppearance
 import cn.mudlife.app.ui.theme.ThemeMode
 import cn.mudlife.app.ui.theme.ThemePalette
@@ -24,6 +25,12 @@ object PrefsHelper {
     var canStoreSessions = false
         private set
 
+    @Synchronized
+    fun ensureInitialized(context: Context) {
+        if (!::prefs.isInitialized) init(context)
+    }
+
+    @Synchronized
     fun init(context: Context) {
         val masterKey = runCatching {
             MasterKey.Builder(context).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build()
@@ -86,6 +93,46 @@ object PrefsHelper {
     var studentNo: String get() = prefs.getString("studentNo", "") ?: ""; set(v) = prefs.edit().putString("studentNo", v).apply()
     var schoolName: String get() = prefs.getString("schoolName", "江苏大学") ?: "江苏大学"; set(v) = prefs.edit().putString("schoolName", v).apply()
     val isLoggedIn: Boolean get() = loginCode.isNotEmpty()
+
+    internal val waterWidgetOwner: String?
+        get() = if (canStoreSessions && isLoggedIn && userId.isNotBlank() && telephone.isNotBlank())
+            "$userId:$telephone" else null
+
+    private data class WaterWidgetBinding(
+        val owner: String,
+        val device: RecentDevice? = null,
+        val cold: RecentDevice? = null,
+        val hot: RecentDevice? = null,
+        val compactHot: Boolean = false
+    )
+
+    internal data class WaterWidgetDevices(
+        val cold: RecentDevice? = null, val hot: RecentDevice? = null, val compactHot: Boolean = false
+    ) {
+        fun device(hotWater: Boolean): RecentDevice? = if (hotWater) hot else cold
+    }
+
+    internal fun bindWaterWidget(id: Int, owner: String, devices: WaterWidgetDevices): Boolean =
+        owner == waterWidgetOwner && prefs.edit().putString("waterWidget_$id",
+            gson.toJson(WaterWidgetBinding(owner, cold = devices.cold, hot = devices.hot, compactHot = devices.compactHot))).commit()
+
+    internal fun waterWidgetDevices(id: Int): WaterWidgetDevices {
+        val owner = waterWidgetOwner ?: return WaterWidgetDevices()
+        val saved = runCatching {
+            gson.fromJson(prefs.getString("waterWidget_$id", null), WaterWidgetBinding::class.java)
+        }.getOrNull()?.takeIf { it.owner == owner } ?: return WaterWidgetDevices()
+        return WaterWidgetDevices(
+            (saved.cold ?: saved.device)?.takeIf { !it.isHot && it.snCode.isNotBlank() },
+            (saved.hot ?: saved.device)?.takeIf { it.isHot && it.snCode.isNotBlank() },
+            saved.compactHot
+        )
+    }
+
+    internal fun removeWaterWidgets(ids: IntArray) {
+        val edit = prefs.edit()
+        ids.forEach { edit.remove("waterWidget_$it") }
+        edit.apply()
+    }
 
     // ── 后勤专区 (江大热水) ──
     var qzhqLoginCode: String get() = prefs.getString("qzhqLoginCode", "") ?: ""; set(v) = prefs.edit().putString("qzhqLoginCode", v).apply()
@@ -246,14 +293,14 @@ object PrefsHelper {
 
     fun addRecentDevice(device: cn.mudlife.app.model.RecentDevice) {
         val list = getRecentDevices()
-        val existing = list.find { it.snCode == device.snCode || (it.mac.isNotEmpty() && it.mac == device.mac) }
+        val existing = list.find { it.snCode == device.snCode }
         val finalDevice = if (device.projectId.isNullOrEmpty() && !existing?.projectId.isNullOrEmpty()) {
             device.copy(projectId = existing?.projectId)
         } else {
             device
         }
-        list.removeAll { it.snCode == device.snCode || (it.mac.isNotEmpty() && it.mac == device.mac) }
-        list.add(0, finalDevice)
+        val index = list.indexOfFirst { it.snCode == device.snCode }
+        if (index >= 0) list[index] = finalDevice else list.add(0, finalDevice)
         val trimmed = list.take(4)
         prefs.edit().putString("recentDevices", gson.toJson(trimmed)).apply()
         lastDeviceName = finalDevice.name
@@ -262,14 +309,15 @@ object PrefsHelper {
         lastDeviceEmoji = finalDevice.emoji
     }
 
-    fun pinRecentDevice(snCode: String) {
+    internal fun moveRecentDevice(snCode: String, targetSnCode: String): List<RecentDevice> {
         val list = getRecentDevices()
-        val index = list.indexOfFirst { it.snCode == snCode }
-        if (index > 0) {
-            val dev = list.removeAt(index)
-            list.add(0, dev)
+        val from = list.indexOfFirst { it.snCode == snCode }
+        val to = list.indexOfFirst { it.snCode == targetSnCode }
+        if (from >= 0 && to >= 0 && from != to) {
+            list.add(to, list.removeAt(from))
             prefs.edit().putString("recentDevices", gson.toJson(list)).apply()
         }
+        return list
     }
 
     fun deleteRecentDevice(snCode: String) {
@@ -302,6 +350,12 @@ object PrefsHelper {
 
     fun saveActiveOrders(orders: List<ActiveOrder>): Boolean {
         return prefs.edit().putString("activeOrders", gson.toJson(orders)).commit()
+    }
+
+    @Synchronized
+    internal fun writeDeviceOrder(snCode: String, order: ActiveOrder?): Boolean {
+        val orders = getActiveOrders().filterNot { it.snCode == snCode }
+        return saveActiveOrders(if (order == null) orders else orders + order)
     }
 
     fun clearActiveOrders() = prefs.edit().remove("activeOrders").apply()

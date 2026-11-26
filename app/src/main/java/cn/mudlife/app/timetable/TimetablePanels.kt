@@ -1,5 +1,14 @@
 package cn.mudlife.app.timetable
 
+import android.app.AlarmManager
+import android.content.ActivityNotFoundException
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.provider.Settings
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -21,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.Role
@@ -227,10 +237,19 @@ internal fun TimetableActions(term: String?, count: Int, selectTerm: () -> Unit,
 @Composable
 internal fun AddWidgetPanel(dismiss: () -> Unit, supportsPin: Boolean, requestPin: () -> Boolean) {
     var requested by rememberSaveable { mutableStateOf<Boolean?>(null) }
+    val context = LocalContext.current
+    val alarms = context.getSystemService(AlarmManager::class.java)
+    var exact by remember { mutableStateOf(Build.VERSION.SDK_INT < Build.VERSION_CODES.S || alarms.canScheduleExactAlarms()) }
+    val exactSettings = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            exact = alarms.canScheduleExactAlarms()
+            if (exact) TodayTimetableWidget.refresh(context)
+        }
+    }
     TimetablePage("添加今日课表", dismiss, wrapContentHeight = true) {
         if (supportsPin) {
             Button(onClick = { requested = requestPin() }, modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(8.dp)) { Text(if (requested == null) "从应用添加" else "重新请求添加") }
+                shape = RoundedCornerShape(8.dp)) { Text("添加今日课表") }
             requested?.let { sent ->
                 Text(if (sent) "已向系统请求添加。若没有出现确认窗口，请按下方步骤从桌面添加。" else "暂时无法发出请求，请从桌面添加。",
                     Modifier.padding(top = 6.dp).semantics { liveRegion = LiveRegionMode.Polite },
@@ -241,8 +260,18 @@ internal fun AddWidgetPanel(dismiss: () -> Unit, supportsPin: Boolean, requestPi
         Text("从桌面添加", Modifier.semantics { heading() }, style = TimetableType.section, color = AppColors.TextPrimary)
         Text("长按桌面空白处，打开「小组件」「添加工具」或「应用挂件」。",
             Modifier.padding(top = 8.dp), style = TimetableType.body, color = AppColors.TextPrimary)
-        Text("找到「江大生活」，将「今日课表」添加到桌面。",
+        Text("在「江大生活」下选择「今日课表」。添加后长按小组件即可调整尺寸。",
             Modifier.padding(top = 6.dp, bottom = 8.dp), style = TimetableType.body, color = AppColors.TextPrimary)
+        if (!exact && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            TextButton(onClick = {
+                try {
+                    exactSettings.launch(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
+                        Uri.fromParts("package", context.packageName, null)))
+                } catch (_: ActivityNotFoundException) {
+                    Toast.makeText(context, "此系统未提供定时刷新设置", Toast.LENGTH_SHORT).show()
+                }
+            }) { Text("允许按上下课时间刷新") }
+        }
     }
 }
 

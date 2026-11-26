@@ -210,10 +210,8 @@ def main():
     checksum = hashlib.sha256(target.read_bytes()).hexdigest()
     sums = target.with_name('SHA256SUMS.txt')
     sums.write_text(f'{checksum}  {name}\n', encoding='utf-8')
-    body = (f"{manifest['changelog']}\n\nAndroid 8.0+ · ARM64 · {version} / {code}\n\n"
-            f"安装包：`{name}`。内置离线扫码模型，保留全部现有功能。\n\n"
-            f"包名 `cn.mudlife.app`，沿用固定发行签名，支持同签名版本覆盖升级并保留本机数据。\n\n"
-            f"源码提交：`{head}`\n\nSHA-256：`{checksum}`\n\n"
+    changelog = re.sub(r'^· ', '- ', manifest['changelog'], flags=re.MULTILINE)
+    body = (f"{changelog.strip()}\n\n"
             f"[Gitee 国内下载]({gitee_url}) · [GitHub 下载]({github_url})")
     for remote in untagged_remotes:
         git('push', remote, 'refs/tags/' + tag)

@@ -17,6 +17,7 @@ import cn.mudlife.app.ui.theme.*
 import cn.mudlife.app.utils.AppLogger
 import cn.mudlife.app.utils.PrefsHelper
 import cn.mudlife.app.utils.UpdateManager
+import cn.mudlife.app.widget.DrinkingWaterWidget
 import cn.mudlife.campuscard.CampusViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -46,6 +47,7 @@ class MainActivity : ComponentActivity() {
                 CircularRevealThemeHost(appearance, onAppearanceChanged = {
                     PrefsHelper.saveAppearance(it)
                     TodayTimetableWidget.refresh(this@MainActivity)
+                    DrinkingWaterWidget.refresh(this@MainActivity)
                 }) {
                     val windowDark = LocalThemeWindowDark.current
                     val background = AppColors.Background

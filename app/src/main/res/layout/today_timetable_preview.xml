@@ -1,28 +1,40 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical"
-    android:gravity="center" android:background="@drawable/today_timetable_background"
-    android:paddingHorizontal="9dp" android:paddingVertical="@dimen/tt_widget_vertical_padding">
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="vertical" android:background="@drawable/today_timetable_background"
+    android:paddingHorizontal="14dp" android:paddingVertical="@dimen/tt_widget_vertical_padding">
     <LinearLayout android:layout_width="match_parent" android:layout_height="@dimen/tt_widget_header_height"
-        android:orientation="vertical" android:gravity="center">
-        <TextView style="@style/TimetableWidgetHeading" android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:text="@string/timetable_widget_name" />
-        <TextView style="@style/TimetableWidgetDate" android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:text="9月7日 周一 · 第1周" />
+        android:gravity="top" android:orientation="horizontal" android:baselineAligned="false">
+        <TextView style="@style/TimetableWidgetDate"
+            android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content"
+            android:gravity="start" android:text="11月26日 周四" />
+        <TextView style="@style/TimetableWidgetDate"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:paddingHorizontal="5dp" android:paddingVertical="1dp" android:visibility="gone"
+            android:background="@drawable/today_timetable_period_badge" android:textColor="@color/tt_widget_accent" />
     </LinearLayout>
-    <TextView android:layout_width="32dp" android:layout_height="@dimen/tt_widget_rule_height" android:background="@color/tt_widget_rule" />
-    <LinearLayout android:layout_width="match_parent" android:layout_height="@dimen/tt_widget_row_height"
-        android:orientation="vertical" android:gravity="center">
-        <TextView style="@style/TimetableWidgetCourse" android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:text="大学英语" />
-        <TextView style="@style/TimetableWidgetDetail" android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:text="1–2节 · 08:00–09:40 · 三江楼" />
-    </LinearLayout>
-    <LinearLayout android:layout_width="match_parent" android:layout_height="@dimen/tt_widget_row_height"
-        android:orientation="vertical" android:gravity="center">
-        <TextView style="@style/TimetableWidgetCourse" android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:text="高等数学" />
-        <TextView style="@style/TimetableWidgetDetail" android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:text="5–6节 · 13:30–15:10 · 三山楼" />
-    </LinearLayout>
+<LinearLayout
+    android:layout_width="match_parent" android:layout_height="@dimen/tt_widget_row_height"
+    android:orientation="vertical" android:gravity="center_vertical">
+    <TextView style="@style/TimetableWidgetCourse"
+        android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="start" android:text="工程热力学" />
+    <TextView style="@style/TimetableWidgetDate"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="3dp" android:gravity="start" android:text="三江楼 203" />
+    <TextView style="@style/TimetableWidgetDate"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="2dp" android:gravity="start" android:textColor="@color/tt_widget_accent" android:text="08:00–09:40" />
+</LinearLayout>
+<LinearLayout
+    android:layout_width="match_parent" android:layout_height="@dimen/tt_widget_row_height"
+    android:orientation="vertical" android:gravity="center_vertical">
+    <TextView style="@style/TimetableWidgetCourse"
+        android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="start" android:text="大学英语" />
+    <TextView style="@style/TimetableWidgetDate"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="3dp" android:gravity="start" android:text="京江楼 105" />
+    <TextView style="@style/TimetableWidgetDate"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="2dp" android:gravity="start" android:textColor="@color/tt_widget_accent" android:text="13:30–15:10" />
+</LinearLayout>
 </LinearLayout>

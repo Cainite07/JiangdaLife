@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/tt_widget_root"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="vertical" android:gravity="center_vertical"
+    android:paddingHorizontal="8dp" android:paddingVertical="3dp"
+    android:background="@drawable/today_timetable_background">
+    <TextView android:id="@+id/tt_compact_caption" style="@style/TimetableWidgetDate"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:gravity="start" android:textSize="10sp" />
+    <TextView android:id="@+id/tt_compact_course" style="@style/TimetableWidgetCourse"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="2dp" android:gravity="start" android:textSize="13sp" />
+    <TextView android:id="@+id/tt_compact_room" style="@style/TimetableWidgetDate"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:gravity="start" android:textSize="11sp" />
+</LinearLayout>
